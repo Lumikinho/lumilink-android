@@ -101,6 +101,12 @@ class ConnectionService : Service() {
             }
             "profile_update" -> scope.launch { manager?.sendProfileUpdateIfConnected() }
             "ping_now" -> scope.launch { manager?.pingNow() }
+            "ping_peer" -> scope.launch {
+                val id = i.getStringExtra("peerId")
+                if (id == null) log("[ping] sem par.")
+                else try { manager?.pingPeer(id) }
+                catch (e: Exception) { log("[ping] sem resposta (${e.message}).") }
+            }
             "reconnect_now" -> scope.launch {
                 i.getStringExtra("peerId")?.let { manager?.reconnectNow(it) }
             }

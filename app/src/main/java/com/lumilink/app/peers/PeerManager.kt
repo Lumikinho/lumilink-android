@@ -2,6 +2,7 @@ package com.lumilink.app.peers
 
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import com.lumilink.app.discovery.NsdHelper
 import com.lumilink.app.messaging.Message
 import com.lumilink.app.messaging.MessageRouter
@@ -85,6 +86,7 @@ class PeerManager(
     private val inboxes = ConcurrentHashMap<MessageRouter.Ctx, Inbox>()
     private val connCtx = ConcurrentHashMap<WsConn, MessageRouter.Ctx>()
     private val limiter = RateLimiter()
+    private val pendingPings = ConcurrentHashMap<String, CompletableDeferred<Long>>()
     private var server: WsServer? = null
     private var nsd: NsdHelper? = null
     private lateinit var myId: String
@@ -106,8 +108,11 @@ class PeerManager(
         router.register("ping") { c, m ->
             c.send(Message.create("pong", JSONObject().put("echo", m.id))); Unit
         }
-        router.register("pong") { c, _ ->
-            sessions[c.deviceId]?.missed = 0; Unit
+        router.register("pong") { c, m ->
+            sessions[c.deviceId]?.missed = 0
+            val echo = m.payload.optString("echo", "")
+            if (echo.isNotEmpty()) pendingPings.remove(echo)?.complete(SystemClock.elapsedRealtime())
+            Unit
         }
         router.register("profile") { c, m -> onProfile(c, m, false) }
         router.register("profile_update") { c, m -> onProfile(c, m, true) }
@@ -312,6 +317,25 @@ class PeerManager(
             }
         }
         log(if (sent) "[profile] profile_update enviado." else "[profile] sem conexão — update irá ao (re)conectar.")
+    }
+
+    // Ping manual com medida: loga o RTT ou a falha.
+    suspend fun pingPeer(id: String) {
+        val s = sessions[id] ?: throw IOException("par desconhecido.")
+        val l = s.link ?: throw IOException("sem conexão ativa.")
+        if (!l.isOpen()) throw IOException("sem conexão ativa.")
+        val ping = Message.create("ping")
+        val d = CompletableDeferred<Long>()
+        pendingPings[ping.id] = d
+        val t0 = SystemClock.elapsedRealtime()
+        try {
+            l.send(ping)
+            withTimeout(10_000) { d.await() }
+            val name = peers.get(id)?.name ?: id
+            log("[ping] $name: pong em ${SystemClock.elapsedRealtime() - t0}ms.")
+        } finally {
+            pendingPings.remove(ping.id)
+        }
     }
 
     suspend fun pingNow() {

@@ -97,11 +97,15 @@ class MainActivity : ComponentActivity() {
                             }.padding(4.dp)) {
                                 p.bmp?.let { Image(it.asImageBitmap(), null, Modifier.size(48.dp)) }
                                 Spacer(Modifier.width(8.dp))
-                                Column {
+                                Column(Modifier.weight(1f)) {
                                     Text(p.name, style = MaterialTheme.typography.titleSmall)
                                     Text("${p.state} · ${seenText(p.lastSeen)}",
                                         style = MaterialTheme.typography.bodySmall)
                                 }
+                                Button(onClick = {
+                                    startService(Intent(this@MainActivity, ConnectionService::class.java)
+                                        .putExtra("action", "ping_peer").putExtra("peerId", p.deviceId))
+                                }) { Text("Ping") }
                             }
                         }
                     }
