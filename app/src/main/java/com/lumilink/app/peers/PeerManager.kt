@@ -296,7 +296,11 @@ class PeerManager(
 
     // ---- descoberta ----
     private fun onPeerSeen(id: String, ip: String, port: Int) {
-        if (id == myId || !peers.isPaired(id)) return
+        if (id == myId) {
+            log("[mdns] AVISO: outro nó anuncia MEU deviceId — colisão de UUID!")
+            return
+        }
+        if (!peers.isPaired(id)) return
         val s = ensureSession(id)
         s.discIp = ip; s.discPort = port; s.discAt = System.currentTimeMillis()
         changed()

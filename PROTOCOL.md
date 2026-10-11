@@ -5,7 +5,9 @@ Camadas: `Transport` (server+client) · `Discovery` (mDNS) · `Pairing` · `Peer
 
 ## 1. Identidade e transporte
 
-- `deviceId`: UUID v4 gerado na 1ª execução e guardado (nunca muda).
+- `deviceId`: UUID v4 gerado na 1ª execução e guardado (nunca muda). Id legado
+  (não-UUID) migra uma vez para UUID novo. Se a descoberta vir o próprio id
+  anunciado por outro endpoint, registra AVISO de colisão (não deve ocorrer).
 - Cada nó tem certificado TLS **autoassinado próprio**; `fingerprint` = SHA-256 hex do DER.
 - Cada nó escuta `wss://0.0.0.0:<porta>/ws`. Porta padrão **aleatória** (40000–50000),
   guardada; pode ser configurada. O par sempre é contatado por `(últimoIp, porta)` ou descoberta.

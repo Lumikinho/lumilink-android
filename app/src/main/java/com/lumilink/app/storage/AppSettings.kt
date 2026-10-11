@@ -17,11 +17,20 @@ class AppSettings(private val ctx: Context) {
         private val START_ON_BOOT = booleanPreferencesKey("start_on_boot")
     }
 
+    // UUID v4 obrigatório. Id legado (não-UUID) migra uma vez para UUID novo.
     suspend fun deviceId(): String {
         val p = ctx.cfg.data.first()
-        p[DEVICE_ID]?.takeIf { it.isNotBlank() }?.let { return it }
+        val cur = p[DEVICE_ID]
+        if (!cur.isNullOrBlank()) {
+            try { UUID.fromString(cur); return cur } catch (e: Exception) { }
+        }
         val legacy = ctx.getSharedPreferences("dev", Context.MODE_PRIVATE).getString("deviceId", null)
-        val id = if (!legacy.isNullOrBlank()) legacy else UUID.randomUUID().toString()
+        val id = try {
+            if (legacy.isNullOrBlank()) throw IllegalArgumentException()
+            UUID.fromString(legacy); legacy
+        } catch (e: Exception) {
+            UUID.randomUUID().toString()
+        }
         ctx.cfg.edit { it[DEVICE_ID] = id }
         return id
     }
