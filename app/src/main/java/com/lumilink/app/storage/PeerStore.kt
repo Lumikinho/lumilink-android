@@ -16,6 +16,7 @@ data class PeerRec(
     val lastPort: Int,
     val photoHash: String,
     val lastSeen: Long,
+    val knownIps: String = "",
 )
 
 // Vários pares: metadados em peers.json + segredos no Keystore (um por par).
@@ -38,7 +39,8 @@ class PeerStore(ctx: Context) {
                 val o = arr.getJSONObject(i)
                 PeerRec(o.getString("deviceId"), o.optString("name", o.getString("deviceId")),
                     o.optString("certFp", ""), o.optString("lastIp", ""), o.optInt("lastPort", 0),
-                    o.optString("photoHash", "empty"), o.optLong("lastSeen", 0))
+                    o.optString("photoHash", "empty"), o.optLong("lastSeen", 0),
+                    o.optString("knownIps", ""))
             }
         } catch (e: Exception) { emptyList() }
     }
@@ -55,11 +57,12 @@ class PeerStore(ctx: Context) {
                 Base64.encodeToString(secretPlain.toByteArray(), Base64.NO_WRAP)).apply()
     }
 
-    fun touch(id: String, ip: String, port: Int) {
+    fun touch(id: String, ip: String, port: Int, knownIps: String = "") {
         val r = get(id) ?: return
         savePeer(r.copy(
             lastIp = ip.ifEmpty { r.lastIp },
-            lastPort = if (port != 0) port else r.lastPort))
+            lastPort = if (port != 0) port else r.lastPort,
+            knownIps = knownIps.ifEmpty { r.knownIps }))
     }
 
     fun updateProfile(id: String, name: String, photoHash: String) {
@@ -83,7 +86,8 @@ class PeerStore(ctx: Context) {
         for (r in list) arr.put(JSONObject()
             .put("deviceId", r.deviceId).put("name", r.name).put("certFp", r.certFp)
             .put("lastIp", r.lastIp).put("lastPort", r.lastPort)
-            .put("photoHash", r.photoHash).put("lastSeen", r.lastSeen))
+            .put("photoHash", r.photoHash).put("lastSeen", r.lastSeen)
+            .put("knownIps", r.knownIps))
         file.writeText(arr.toString())
     }
 }

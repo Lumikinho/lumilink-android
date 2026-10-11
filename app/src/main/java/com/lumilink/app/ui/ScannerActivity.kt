@@ -78,7 +78,8 @@ class ScannerActivity : ComponentActivity() {
                             .putExtra("qr_port", qr.port)
                             .putExtra("qr_token", qr.token)
                             .putExtra("qr_fp", qr.fingerprint)
-                            .putExtra("qr_deviceId", qr.deviceId),
+                            .putExtra("qr_deviceId", qr.deviceId)
+                            .putStringArrayListExtra("qr_ips", ArrayList(qr.ips)),
                     )
                     finish()
                 }

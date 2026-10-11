@@ -11,6 +11,11 @@ Camadas: `Transport` (server+client) · `Discovery` (mDNS) · `Pairing` · `Peer
 - Cada nó tem certificado TLS **autoassinado próprio**; `fingerprint` = SHA-256 hex do DER.
 - Cada nó escuta `wss://0.0.0.0:<porta>/ws`. Porta padrão **aleatória** (40000–50000),
   guardada; pode ser configurada. O par sempre é contatado por `(últimoIp, porta)` ou descoberta.
+- Cada nó anuncia **todos os seus IPv4** ordenados (LAN RFC1918 → Tailscale/CGNAT →
+  demais → link-local; nunca loopback). O handshake é **por ID**: o discador testa cada
+  IP candidato com fail-fast e fixa o que autenticar (log `conectado via ip:porta`).
+  Vale para qualquer rede roteável entre os nós: Wi-Fi/LAN, Tailscale, **PAN Bluetooth**
+  (tethering Bluetooth entrega IP — o LumiLink conecta sobre ele sem pilha BT própria).
 - Frames: JSON texto `{ "type": "...", "id": "...", "payload": { } }`, `id` = 16 hex aleatórios.
 
 ## 2. Descoberta (mDNS)
@@ -37,15 +42,16 @@ Camadas: `Transport` (server+client) · `Discovery` (mDNS) · `Pairing` · `Peer
 Qualquer nó abre **"Parear novo dispositivo"**: gera credencial de uso único (**2 min**):
 `token` (hex, p/ QR) + `código` de 6 dígitos (p/ manual, mesmo prazo). Mostra:
 
-- QR JSON: `{ ip, port, token, fingerprint, deviceId }` (`ip` = IP LAN RFC1918, nunca VPN/virtual).
+- QR JSON: `{ ip, port, token, fingerprint, deviceId, ips[] }` (`ip` = melhor LAN;
+  `ips` = todos, p/ Tailscale/PAN). Manual: `IP:porta` + código de 6 dígitos.
 - Manual (obrigatório p/ PC↔PC): `IP:porta` + código de 6 dígitos; o outro nó digita em
   **"Conectar manualmente"**.
 
 Fluxo (joiner = quem escaneou/digitou; host = quem mostrou):
 
 1. Joiner conecta em `wss://ip:porta/ws`, valida o certificado contra o `fingerprint` (pinning).
-2. Joiner → `hello{ token|code, deviceId, name, profile:{name,photoHash}, fingerprint }`
-   (`fingerprint` = cert do joiner).
+2. Joiner → `hello{ token|code, deviceId, name, profile:{name,photoHash}, fingerprint, port, ips[] }`
+   (`fingerprint` = cert do joiner; `port`/`ips` = onde o joiner escuta, p/ discar de volta).
 3. Host valida credencial (uso único, 2 min), gera **segredo 32 bytes**, salva o par e responde
    `auth_ok{ secret, deviceId, profile:{name,photoHash} }`.
 4. Joiner salva o par. Ambos passam a trocar `profile` (§6).
@@ -80,7 +86,7 @@ Sem QR. Dialer = quem disca (§3); listener = quem escuta:
 
 | type | direção | payload |
 |---|---|---|
-| `hello` | dialer→listener | `{ token? , code?, deviceId, name, profile:{name,photoHash}, fingerprint, port }` (`port` = escuta do remetente, p/ discar de volta) |
+| `hello` | dialer→listener | `{ token? , code?, deviceId, name, profile:{name,photoHash}, fingerprint, port, ips[] }` (`port`/`ips` = escuta do remetente, p/ discar de volta) |
 | `auth` | listener→dialer | `{ nonce }` |
 | `auth` | dialer→listener | `{ hmac, nonce }` |
 | `auth_ok` | listener→dialer | `{ hmac }` (reconexão) ou `{ secret, deviceId, profile }` (pareamento) |

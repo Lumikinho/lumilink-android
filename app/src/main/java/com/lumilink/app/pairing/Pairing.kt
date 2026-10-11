@@ -3,25 +3,31 @@ package com.lumilink.app.pairing
 import android.graphics.Bitmap
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
 
 data class QrPayload(
     val ip: String, val port: Int, val token: String,
     val fingerprint: String, val deviceId: String,
+    val ips: List<String> = emptyList(),
 ) {
     companion object {
         fun parse(raw: String): QrPayload? = try {
             val o = JSONObject(raw)
+            val arr = o.optJSONArray("ips")
+            val ips = mutableListOf<String>()
+            if (arr != null) for (i in 0 until arr.length()) ips += arr.optString(i)
             QrPayload(
                 o.getString("ip"), o.getInt("port"), o.getString("token"),
-                o.getString("fingerprint"), o.getString("deviceId"),
+                o.getString("fingerprint"), o.getString("deviceId"), ips,
             )
         } catch (e: Exception) { null }
 
-        fun toJson(ip: String, port: Int, token: String, fp: String, id: String): String =
+        fun toJson(ip: String, port: Int, token: String, fp: String, id: String, ips: List<String> = listOf(ip)): String =
             JSONObject().put("ip", ip).put("port", port).put("token", token)
-                .put("fingerprint", fp).put("deviceId", id).toString()
+                .put("fingerprint", fp).put("deviceId", id)
+                .put("ips", JSONArray(ips)).toString()
 
         fun toBitmap(json: String, size: Int = 512): Bitmap {
             val m = QRCodeWriter().encode(json, BarcodeFormat.QR_CODE, size, size)
@@ -78,28 +84,33 @@ class Pairing(private val log: (String) -> Unit) {
                 android.util.Base64.decode(secretB64, android.util.Base64.NO_WRAP), "HmacSHA256"))
             return mac.doFinal(nonce.toByteArray()).joinToString("") { "%02x".format(it) }
         }
-        // IP LAN preferido (evita VPN/virtual).
-        fun localIp(): String {
-            var fallback: String? = null
+        // IP primário: LAN (inclui PAN Bluetooth) → Tailscale/CGNAT → resto. Nunca loopback.
+        fun localIp(): String = orderedIps().firstOrNull() ?: "127.0.0.1"
+
+        fun orderedIps(): List<String> {
+            val lan = mutableListOf<String>()
+            val cgnat = mutableListOf<String>()
+            val other = mutableListOf<String>()
+            val linklocal = mutableListOf<String>()
+            fun add(dst: MutableList<String>, ip: String?) { if (ip != null && !dst.contains(ip)) dst.add(ip) }
             try {
                 val ifs = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
                 for (ni in ifs) {
                     if (!ni.isUp || ni.isLoopback) continue
-                    val name = (ni.name + " " + (ni.displayName ?: "")).lowercase()
-                    if (listOf("tailscale", "docker", "veth", "vmware", "virtualbox", "vpn",
-                            "tun", "tap", "wireguard", "rmnet", "ccmni").any { name.contains(it) }) continue
                     for (addr in java.util.Collections.list(ni.inetAddresses)) {
                         if (addr !is java.net.Inet4Address || addr.isLoopbackAddress) continue
                         val b = addr.address.map { it.toInt() and 0xFF }
-                        if (b[0] == 169 && b[1] == 254) continue
-                        if (b[0] == 100 && b[1] in 64..127) continue
-                        val rfc = b[0] == 10 || (b[0] == 172 && b[1] in 16..31) || (b[0] == 192 && b[1] == 168)
-                        if (rfc) return addr.hostAddress ?: continue
-                        if (fallback == null) fallback = addr.hostAddress
+                        val ip = addr.hostAddress
+                        when {
+                            b[0] == 169 && b[1] == 254 -> add(linklocal, ip)
+                            b[0] == 100 && b[1] in 64..127 -> add(cgnat, ip)
+                            b[0] == 10 || (b[0] == 172 && b[1] in 16..31) || (b[0] == 192 && b[1] == 168) -> add(lan, ip)
+                            else -> add(other, ip)
+                        }
                     }
                 }
             } catch (e: Exception) { }
-            return fallback ?: "127.0.0.1"
+            return lan + cgnat + other + linklocal
         }
         // Todos os IPv4 locais (p/ detectar o próprio anúncio no mDNS).
         fun localIps(): Set<String> {

@@ -175,7 +175,8 @@ class PeerManager(
     suspend fun createPairingDisplay(): JSONObject {
         val (token, code) = pairing.newPairing()
         val ip = Pairing.localIp()
-        val qr = QrPayload.toJson(ip, myPort, token, certs.fingerprint, myId)
+        val qr = QrPayload.toJson(ip, myPort, token, certs.fingerprint, myId,
+            Pairing.orderedIps().ifEmpty { listOf(ip) })
         val o = JSONObject().put("ip", ip).put("port", myPort).put("code", code)
             .put("fp", certs.fingerprint).put("id", myId).put("qr", qr)
         appCtx.getSharedPreferences("pairing_ui", Context.MODE_PRIVATE).edit()
@@ -183,7 +184,8 @@ class PeerManager(
         return o
     }
 
-    suspend fun pairTo(ip: String, port: Int, credential: String, expectedFp: String?, knownPeerId: String?) {
+    suspend fun pairTo(ip: String, port: Int, credential: String, expectedFp: String?,
+        knownPeerId: String?, knownIps: List<String> = emptyList()) {
         val client = PhoneWebSocketClient(log)
         val ctx = MessageRouter.Ctx(send = { m -> client.send(m) })
         val inbox = Inbox()
@@ -214,7 +216,8 @@ class PeerManager(
                                     .put("deviceId", myId).put("deviceName", me)
                                     .put("profile", JSONObject().put("name", me)
                                         .put("photoHash", profiles.hashOf(profiles.ownPhotoFile())))
-                                    .put("fingerprint", certs.fingerprint).put("port", myPort)))
+                                    .put("fingerprint", certs.fingerprint).put("port", myPort)
+                                    .put("ips", JSONArray(Pairing.orderedIps()))))
                                 val ok = inbox.wait("auth_ok", 20_000)
                                 val secret = ok.payload.optString("secret", "")
                                 if (secret.isEmpty()) throw IOException("pareamento recusado.")
@@ -225,7 +228,8 @@ class PeerManager(
                                 val fp = expectedFp?.ifBlank { client.capturedFp ?: "" }
                                     ?: (client.capturedFp ?: "")
                                 peers.savePeer(PeerRec(peerId, pname, fp,
-                                    ip, port, prof?.optString("photoHash", "empty") ?: "empty", 0), secret)
+                                    ip, port, prof?.optString("photoHash", "empty") ?: "empty",
+                                    0, knownIps.joinToString(",")), secret)
                                 val s = ensureSessionBusy(peerId)
                                 try {
                                     s.link?.let { detach(it) }
@@ -336,29 +340,47 @@ class PeerManager(
             s.state = "Conectando"; changed()
             val rec = peers.get(s.id)
             val freshDisc = s.discIp.isNotEmpty() && System.currentTimeMillis() - s.discAt < 60_000
-            val ip = if (freshDisc) s.discIp else (rec?.lastIp ?: "")
-            val port = if (freshDisc) s.discPort else (rec?.lastPort ?: 0)
+            val lastIp = rec?.lastIp ?: ""
+            val lastPort = rec?.lastPort ?: 0
+            val targets = mutableListOf<Pair<String, Int>>()
+            if (freshDisc) targets += s.discIp to s.discPort
+            if (lastIp.isNotEmpty() && lastPort != 0 &&
+                targets.none { it.first == lastIp }) targets += lastIp to lastPort
+            if (lastPort != 0)
+                for (k in (rec?.knownIps ?: "").split(',').map { it.trim() }
+                    .filter { it.isNotEmpty() }.take(6))
+                    if (targets.none { it.first == k }) targets += k to lastPort
             if (myId > s.id) {
                 val quiet = System.currentTimeMillis() - maxOf(s.linkLostAt, s.discAt)
                 if (quiet < 10_000) { delay(1000); continue }
             }
-            if (ip.isEmpty() || port == 0) { delay(5000); continue }
-            log("[loop] ${s.id} discando $ip:$port (smaller=${myId < s.id})…")
-            val job = scope.launch { dialAndHandshake(s, ip, port) }
-            s.dialJob?.cancel(CancellationException("substituída"))
-            s.dialJob = job
-            try {
-                withTimeout(35_000) { job.join() }
-                s.backoff = 1000
-            } catch (e: CancellationException) {
-                if (job.isCancelled && e.message == "yield") log("[conn] ${s.id}: cedendo vez à entrada (sou maior).")
-                else { log("[conn] ${s.id} falhou: ${e.message}"); s.state = "Desconectado"; changed() }
-            } catch (e: Exception) {
-                log("[conn] ${s.id} falhou: ${e.message}")
-                s.state = "Desconectado"; changed()
-            } finally {
-                if (s.dialJob === job) s.dialJob = null
+            if (targets.isEmpty()) { delay(5000); continue }
+            var ok = false
+            for ((ip, port) in targets) {
+                log("[loop] ${s.id} discando $ip:$port (smaller=${myId < s.id})…")
+                val job = scope.launch { dialAndHandshake(s, ip, port) }
+                s.dialJob?.cancel(CancellationException("substituída"))
+                s.dialJob = job
+                try {
+                    withTimeout(35_000) { job.join() }
+                    s.backoff = 1000
+                    ok = true
+                    break
+                } catch (e: CancellationException) {
+                    if (job.isCancelled && e.message == "yield") {
+                        log("[conn] ${s.id}: cedendo vez à entrada (sou maior).")
+                        ok = true // cedeu: não é falha, não dobra backoff
+                        break
+                    } else {
+                        log("[conn] ${s.id} falhou em $ip:$port: ${e.message}")
+                    }
+                } catch (e: Exception) {
+                    log("[conn] ${s.id} falhou em $ip:$port: ${e.message}")
+                } finally {
+                    if (s.dialJob === job) s.dialJob = null
+                }
             }
+            if (!ok) { s.state = "Desconectado"; changed() }
             delay(s.backoff)
             s.backoff = minOf(s.backoff * 2, 30_000)
         }
@@ -395,7 +417,8 @@ class PeerManager(
                 .put("deviceId", myId).put("deviceName", me)
                 .put("profile", JSONObject().put("name", me)
                     .put("photoHash", profiles.hashOf(profiles.ownPhotoFile())))
-                .put("fingerprint", certs.fingerprint).put("port", myPort)))
+                .put("fingerprint", certs.fingerprint).put("port", myPort)
+                .put("ips", JSONArray(Pairing.orderedIps()))))
             val ch = inbox.wait("auth", 20_000)
             val nonce = ch.payload.optString("nonce", "")
             if (nonce.isEmpty()) throw IOException("desafio inválido")
@@ -424,6 +447,7 @@ class PeerManager(
         s.lastSeen = System.currentTimeMillis(); s.missed = 0
         ctx.deviceId = s.id; ctx.authenticated = true
         peers.touch(s.id, ip, port)
+        log("[conn] ${s.id} via $ip:$port.")
         sendOwnProfile(ctx)
         startPing(s, link)
         changed()
@@ -469,7 +493,7 @@ class PeerManager(
                     profiles.sanitize(p.optString("deviceName")).ifEmpty { id } }
                 val photoHash = prof?.optString("photoHash", "empty") ?: "empty"
                 peers.savePeer(PeerRec(id, name, p.optString("fingerprint", ""),
-                    ip, p.optInt("port", 0), photoHash, 0), secret)
+                    ip, p.optInt("port", 0), photoHash, 0, helloIps(p)), secret)
                 val s = ensureSessionBusy(id)
                 try {
                     s.link?.let { detach(it) }
@@ -548,7 +572,7 @@ class PeerManager(
             ctx.send(Message.create("auth_ok", JSONObject().put("hmac", Pairing.hmac(secret2, nd))))
             limiter.success(ip)
             attachIncoming(s, ctx, inbox, conn)
-            peers.touch(id, ip, p.optInt("port", 0))
+            peers.touch(id, ip, p.optInt("port", 0), helloIps(p))
             log("[auth] $id autenticado (mútuo ok).")
             changed()
         } finally {
@@ -558,6 +582,18 @@ class PeerManager(
 
     private fun connOf(ctx: MessageRouter.Ctx): WsConn? =
         connCtx.entries.firstOrNull { it.value === ctx }?.key
+
+    private fun helloIps(p: JSONObject): String {
+        val out = mutableListOf<String>()
+        try {
+            val arr = p.optJSONArray("ips") ?: return ""
+            for (i in 0 until arr.length()) {
+                val s = arr.optString(i, "").trim()
+                if (s.isNotEmpty() && s.length < 64) out += s
+            }
+        } catch (e: Exception) { }
+        return out.take(8).joinToString(",")
+    }
 
     // ---- perfil ----
     private suspend fun sendOwnProfile(ctx: MessageRouter.Ctx) {

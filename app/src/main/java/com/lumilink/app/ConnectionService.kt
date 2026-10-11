@@ -80,8 +80,9 @@ class ConnectionService : Service() {
             val token = i.getStringExtra("qr_token")!!
             val fp = i.getStringExtra("qr_fp")!!
             val id = i.getStringExtra("qr_deviceId")!!
+            val ips = i.getStringArrayListExtra("qr_ips") ?: emptyList<String>()
             scope.launch {
-                try { manager?.pairTo(ip, port, token, fp, id) }
+                try { manager?.pairTo(ip, port, token, fp, id, ips) }
                 catch (e: Exception) { log("[pair] falhou: ${e.message}") }
             }
         }
