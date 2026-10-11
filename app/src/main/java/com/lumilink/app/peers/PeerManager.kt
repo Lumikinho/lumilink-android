@@ -186,15 +186,33 @@ class PeerManager(
 
     suspend fun pairTo(ip: String, port: Int, credential: String, expectedFp: String?,
         knownPeerId: String?, knownIps: List<String> = emptyList()) {
+        val targets = mutableListOf(ip to port)
+        for (k in knownIps.map { it.trim() }.filter { it.isNotEmpty() }.take(6))
+            if (targets.none { it.first == k }) targets += k to port
+        var lastErr: String? = null
+        for ((tip, tport) in targets) {
+            try {
+                log("[pair] tentando $tip:$tport …")
+                if (attemptPair(tip, tport, credential, expectedFp, knownPeerId, knownIps)) return
+            } catch (e: Exception) {
+                lastErr = e.message
+                log("[pair] $tip:$tport falhou: ${e.message}")
+            }
+        }
+        throw IOException(lastErr ?: "pareamento falhou.")
+    }
+
+    private suspend fun attemptPair(tip: String, tport: Int, credential: String,
+        expectedFp: String?, knownPeerId: String?, knownIps: List<String>): Boolean {
         val client = PhoneWebSocketClient(log)
         val ctx = MessageRouter.Ctx(send = { m -> client.send(m) })
         val inbox = Inbox()
         inboxes[ctx] = inbox
         try {
-            withTimeout(40_000) {
+            withTimeout(30_000) {
                 val done = CompletableDeferred<Unit>()
                 var failMsg: String? = null
-                client.connect(ip, port, expectedFp ?: "",
+                client.connect(tip, tport, expectedFp ?: "",
                     onMessage = { raw ->
                         scope.launch {
                             val m = Message.fromJson(raw)
@@ -223,21 +241,23 @@ class PeerManager(
                                 if (secret.isEmpty()) throw IOException("pareamento recusado.")
                                 val peerId = ok.payload.optString("deviceId", "")
                                 if (peerId.isEmpty()) throw IOException("resposta sem deviceId.")
+                                if (knownPeerId != null && peerId != knownPeerId)
+                                    throw IOException("ID divergente ($peerId).")
                                 val prof = ok.payload.optJSONObject("profile")
                                 val pname = profiles.sanitize(prof?.optString("name")).ifEmpty { peerId }
                                 val fp = expectedFp?.ifBlank { client.capturedFp ?: "" }
                                     ?: (client.capturedFp ?: "")
                                 peers.savePeer(PeerRec(peerId, pname, fp,
-                                    ip, port, prof?.optString("photoHash", "empty") ?: "empty",
+                                    tip, tport, prof?.optString("photoHash", "empty") ?: "empty",
                                     0, knownIps.joinToString(",")), secret)
                                 val s = ensureSessionBusy(peerId)
                                 try {
                                     s.link?.let { detach(it) }
-                                    attachOutgoing(s, ctx, inbox, client, ip, port)
+                                    attachOutgoing(s, ctx, inbox, client, tip, tport)
                                 } finally {
                                     s.busy = false
                                 }
-                                log("[pair] PAREADO com $peerId.")
+                                log("[pair] PAREADO com $peerId via $tip:$tport.")
                                 changed()
                             } catch (e: CancellationException) {
                                 failMsg = e.message ?: "cancelado"
@@ -254,10 +274,9 @@ class PeerManager(
                     })
                 done.await()
                 val err = failMsg
-                if (knownPeerId != null && !peers.isPaired(knownPeerId))
-                    throw IOException(err ?: "pareamento não confirmado.")
-                if (err != null && (knownPeerId == null)) throw IOException(err)
+                if (err != null) throw IOException(err)
             }
+            return true
         } finally {
             inboxes.remove(ctx)
         }
