@@ -1,33 +1,49 @@
 package com.lumilink.app.ui
 
 import android.content.*
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import com.lumilink.app.ConnectionService
-import com.lumilink.app.storage.PairStore
+import com.lumilink.app.storage.AppSettings
 import kotlinx.coroutines.*
+import org.json.JSONArray
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-// Tela mínima: estado, Escanear QR, Esquecer PC, toggle boot, Meu perfil, isenção bateria.
+data class UiPeer(
+    val deviceId: String, val name: String, val state: String,
+    val lastSeen: Long, val lastIp: String, val bmp: Bitmap?,
+)
+
+// Principal: lista de pareados (foto, nome, estado) + parear/manual/atualizar.
 class MainActivity : ComponentActivity() {
-    private lateinit var pairs: PairStore
-    private var state by mutableStateOf("Desconectado")
+    private var peers by mutableStateOf(listOf<UiPeer>())
     private var logs by mutableStateOf(listOf<String>())
     private var startOnBoot by mutableStateOf(false)
     private val receivers = mutableListOf<BroadcastReceiver>()
+    private lateinit var settings: AppSettings
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        pairs = PairStore(this)
-        ConnectionService.start(this)
-        onSvc { startForegroundService(Intent(this, ConnectionService::class.java)) }
+        settings = AppSettings(this)
+        startForegroundService(Intent(this, ConnectionService::class.java))
 
         fun reg(action: String, fn: (Intent) -> Unit) {
             val r = object : BroadcastReceiver() {
@@ -35,40 +51,102 @@ class MainActivity : ComponentActivity() {
             }
             registerReceiver(r, IntentFilter(action), RECEIVER_NOT_EXPORTED); receivers += r
         }
-        reg("LUMILINK_STATE") { state = it.getStringExtra("state") ?: state }
+        reg("LUMILINK_CHANGED") { refreshPeers() }
         reg("LUMILINK_LOG") { logs = (logs + "> ${it.getStringExtra("line")}".takeLast(200)).takeLast(60) }
-        refreshState() // lê o estado persistido (caso o service já esteja conectado)
-
-        CoroutineScope(Dispatchers.IO).launch { startOnBoot = pairs.startOnBoot() }
+        refreshPeers()
+        CoroutineScope(Dispatchers.IO).launch { startOnBoot = settings.startOnBoot() }
 
         setContent {
             MaterialTheme {
                 Column(Modifier.padding(16.dp)) {
-                    Text("LumiLink (celular)", style = MaterialTheme.typography.headlineSmall)
-                    Text("Estado: $state")
+                    val up = peers.count { it.state == "Conectado" }
+                    Text("LumiLink (nó P2P)", style = MaterialTheme.typography.headlineSmall)
+                    Text(if (up == 0) "Desconectado" else "Conectado a $up dispositivo(s)")
                     Spacer(Modifier.height(8.dp))
-                    Button(onClick = { startActivity(Intent(this@MainActivity, ScannerActivity::class.java)) }) {
-                        Text("Escanear QR")
+                    Row {
+                        Button(onClick = {
+                            startService(Intent(this@MainActivity, ConnectionService::class.java)
+                                .putExtra("action", "new_pairing"))
+                            startActivity(Intent(this@MainActivity, PairActivity::class.java))
+                        }) { Text("Parear novo") }
+                        Spacer(Modifier.width(8.dp))
+                        Button(onClick = { startActivity(Intent(this@MainActivity, ManualActivity::class.java)) }) {
+                            Text("Manual")
+                        }
                     }
-                    Button(onClick = {
-                        CoroutineScope(Dispatchers.IO).launch { pairs.forget(); }
-                    }) { Text("Esquecer PC") }
+                    Row {
+                        Button(onClick = { startActivity(Intent(this@MainActivity, ScannerActivity::class.java)) }) {
+                            Text("Escanear QR")
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Button(onClick = {
+                            refreshPeers()
+                            startService(Intent(this@MainActivity, ConnectionService::class.java)
+                                .putExtra("action", "ping_now"))
+                        }) { Text("Atualizar") }
+                    }
                     Button(onClick = { startActivity(Intent(this@MainActivity, ProfileActivity::class.java)) }) {
                         Text("Meu perfil")
                     }
-                    Row { Checkbox(startOnBoot, {
-                        startOnBoot = it
-                        CoroutineScope(Dispatchers.IO).launch { pairs.setStartOnBoot(it) }
-                    }); Text("Iniciar com o sistema") }
+                    Text("Pareados:", style = MaterialTheme.typography.titleSmall)
+                    LazyColumn(Modifier.height(220.dp)) {
+                        items(peers, key = { it.deviceId }) { p ->
+                            Row(Modifier.fillMaxWidth().clickable {
+                                startActivity(Intent(this@MainActivity, PeerDetailActivity::class.java)
+                                    .putExtra("peerId", p.deviceId))
+                            }.padding(4.dp)) {
+                                p.bmp?.let { Image(it.asImageBitmap(), null, Modifier.size(48.dp)) }
+                                Spacer(Modifier.width(8.dp))
+                                Column {
+                                    Text(p.name, style = MaterialTheme.typography.titleSmall)
+                                    Text("${p.state} · ${seenText(p.lastSeen)}",
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+                    Row {
+                        Checkbox(startOnBoot, {
+                            startOnBoot = it
+                            CoroutineScope(Dispatchers.IO).launch { settings.setStartOnBoot(it) }
+                        }); Text("Iniciar com o sistema")
+                    }
                     Button(onClick = { requestBatteryExemption() }) { Text("Desativar otimização de bateria") }
                     Text("Log:", style = MaterialTheme.typography.titleSmall)
-                    logs.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    LazyColumn(Modifier.height(140.dp)) {
+                        items(logs) { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    }
                 }
             }
         }
     }
 
-    private fun onSvc(fn: () -> Unit) = fn()
+    private fun seenText(ts: Long): String {
+        if (ts <= 0) return "nunca"
+        return SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(ts))
+    }
+
+    private fun refreshPeers() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val raw = getSharedPreferences("peers_ui", MODE_PRIVATE)
+                    .getString("peers_json", "[]") ?: "[]"
+                val arr = JSONArray(raw)
+                val list = mutableListOf<UiPeer>()
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val id = o.getString("deviceId")
+                    val f = File(filesDir, "peer_$id.png")
+                    list += UiPeer(id, o.optString("name", id), o.optString("state", "?"),
+                        o.optLong("lastSeen", 0), o.optString("lastIp", ""),
+                        if (f.exists()) BitmapFactory.decodeFile(f.absolutePath) else null)
+                }
+                peers = list
+            } catch (e: Exception) { }
+        }
+    }
+
+    override fun onResume() { super.onResume(); refreshPeers() }
 
     private fun requestBatteryExemption() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
@@ -76,16 +154,6 @@ class MainActivity : ComponentActivity() {
             startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                 android.net.Uri.parse("package:$packageName")))
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        refreshState() // volta pra tela sempre mostra o estado atual
-    }
-
-    private fun refreshState() {
-        val sp = getSharedPreferences("svc", MODE_PRIVATE)
-        state = sp.getString("state", null) ?: state
     }
 
     override fun onDestroy() { receivers.forEach { unregisterReceiver(it) }; super.onDestroy() }

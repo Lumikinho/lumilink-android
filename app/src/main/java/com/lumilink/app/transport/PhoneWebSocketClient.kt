@@ -16,6 +16,7 @@ class PhoneWebSocketClient(
 ) {
     private val clientBase = OkHttpClient()
     private var ws: WebSocket? = null
+    var capturedFp: String? = null
 
     fun sha256Hex(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
@@ -31,6 +32,11 @@ class PhoneWebSocketClient(
             override fun checkClientTrusted(c: Array<X509Certificate>, a: String) {}
             override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
                 val fp = sha256Hex(chain[0].encoded)
+                capturedFp = fp
+                if (expectedFingerprint.isBlank()) {
+                    log("[tls] TOFU: confiando no fingerprint ${fp.take(12)}… (manual, 1ª vez)")
+                    return
+                }
                 if (!fp.equals(expectedFingerprint, ignoreCase = true))
                     throw SSLException("fingerprint mismatch: $fp")
                 log("[tls] pinning ok (${fp.take(12)}…)")

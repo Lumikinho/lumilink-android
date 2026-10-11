@@ -1,5 +1,6 @@
 package com.lumilink.app.ui
 
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
+import com.lumilink.app.ConnectionService
 import com.lumilink.app.profile.ProfileDefaults
 import com.lumilink.app.profile.ProfileStore
 import kotlinx.coroutines.*
@@ -25,11 +27,14 @@ class ProfileActivity : ComponentActivity() {
         val store = ProfileStore(this, deviceId)
         var name by mutableStateOf(ProfileDefaults.defaultName(this))
         var bmp by mutableStateOf<android.graphics.Bitmap?>(null)
+        var resetToDefault by mutableStateOf(false)
+        val systemDefault = ProfileDefaults.defaultName(this)
 
         val picker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
             if (uri != null) {
                 contentResolver.openInputStream(uri)?.use {
                     bmp = BitmapFactory.decodeStream(it)
+                    resetToDefault = false
                 }
             }
         }
@@ -55,6 +60,8 @@ class ProfileActivity : ComponentActivity() {
                         Spacer(Modifier.width(8.dp))
                         Button(onClick = {
                             name = ProfileDefaults.defaultName(this@ProfileActivity)
+                            resetToDefault = true
+                            bmp = null
                             CoroutineScope(Dispatchers.IO).launch {
                                 store.initialsAvatar(name, store.ownPhotoFile())
                             }
@@ -64,9 +71,20 @@ class ProfileActivity : ComponentActivity() {
                         val clean = store.sanitize(name)
                         if (clean.isEmpty()) return@Button
                         CoroutineScope(Dispatchers.IO).launch {
-                            val f = store.ownPhotoFile()
-                            bmp?.let { store.prepareAvatar(it, f) }
-                            // TODO: persistir name/isCustom em DataStore e enviar profile_update via Service.
+                            try {
+                                val picked = bmp
+                                if (resetToDefault && picked == null) {
+                                    store.saveOwn(clean, nameCustom = clean != systemDefault, photoCustom = false)
+                                } else {
+                                    if (picked != null) store.prepareAvatar(picked, store.ownPhotoFile())
+                                    store.saveOwn(clean, nameCustom = true,
+                                        photoCustom = store.isPhotoCustom() || picked != null)
+                                }
+                                // Avisa o parceiro na hora, se conectado.
+                                this@ProfileActivity.startService(
+                                    Intent(this@ProfileActivity, ConnectionService::class.java)
+                                        .putExtra("action", "profile_update"))
+                            } catch (e: Exception) { /* erro vai pro logcat */ }
                         }
                         finish()
                     }) { Text("Salvar") }

@@ -20,6 +20,9 @@
         </activity>
         <activity android:name=".ui.ProfileActivity" android:exported="false" />
         <activity android:name=".ui.ScannerActivity" android:exported="false" />
+        <activity android:name=".ui.PairActivity" android:exported="false" />
+        <activity android:name=".ui.ManualActivity" android:exported="false" />
+        <activity android:name=".ui.PeerDetailActivity" android:exported="false" />
 
         <service android:name=".ConnectionService"
             android:foregroundServiceType="dataSync"

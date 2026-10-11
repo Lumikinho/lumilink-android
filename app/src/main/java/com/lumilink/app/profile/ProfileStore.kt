@@ -4,7 +4,9 @@ import android.content.Context
 import android.graphics.*
 import android.provider.Settings
 import androidx.datastore.preferences.core.*
+import androidx.datastore.preferences.preferencesDataStore
 import java.io.File
+import kotlinx.coroutines.flow.first
 import java.security.MessageDigest
 
 data class DeviceProfile(val deviceId: String, val name: String, val photoHash: String)
@@ -17,18 +19,36 @@ object ProfileDefaults {
     } catch (e: Exception) { android.os.Build.MODEL ?: "Android" }
 }
 
+private val Context.profilePrefs by preferencesDataStore("lumilink_profile")
+
 class ProfileStore(private val ctx: Context, val deviceId: String) {
-    private val nameKey = stringPreferencesKey("own_name")
-    private val nameCustomKey = booleanPreferencesKey("own_name_custom")
-    private val photoCustomKey = booleanPreferencesKey("own_photo_custom")
+    companion object {
+        private val OWN_NAME = stringPreferencesKey("own_name")
+        private val OWN_NAME_CUSTOM = booleanPreferencesKey("own_name_custom")
+        private val OWN_PHOTO_CUSTOM = booleanPreferencesKey("own_photo_custom")
+    }
 
     fun ownPhotoFile(): File = File(ctx.filesDir, "profile.png")
     fun peerPhotoFile(peerId: String): File = File(ctx.filesDir, "peer_$peerId.png")
 
-    suspend fun currentName(get: suspend () -> androidx.datastore.preferences.core.Preferences): String {
-        // Se não customizado, relê padrão do sistema a cada abertura.
-        return "todo"
+    // Se não customizado, relê o padrão do sistema a cada chamada.
+    suspend fun getOwnName(): String {
+        val p = ctx.profilePrefs.data.first()
+        val saved = p[OWN_NAME]
+        return if (p[OWN_NAME_CUSTOM] == true && !saved.isNullOrBlank()) sanitize(saved)
+        else ProfileDefaults.defaultName(ctx)
     }
+
+    suspend fun saveOwn(name: String, nameCustom: Boolean, photoCustom: Boolean) {
+        ctx.profilePrefs.edit {
+            it[OWN_NAME] = name
+            it[OWN_NAME_CUSTOM] = nameCustom
+            it[OWN_PHOTO_CUSTOM] = photoCustom
+        }
+    }
+
+    suspend fun isPhotoCustom(): Boolean =
+        ctx.profilePrefs.data.first()[OWN_PHOTO_CUSTOM] == true
 
     fun sanitize(name: String?): String {
         if (name.isNullOrBlank()) return ""
