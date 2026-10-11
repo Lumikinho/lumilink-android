@@ -41,6 +41,7 @@ class PhoneWebSocketClient(
             init(null, arrayOf<TrustManager>(trustAllWithPin), java.security.SecureRandom())
         }
         val client = clientBase.newBuilder()
+            .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS) // falha rápido p/ tentar próximo candidato
             .sslSocketFactory(ssl.socketFactory, trustAllWithPin)
             .hostnameVerifier { _, _ -> true } // IP local; identidade = fingerprint, não hostname
             .build()

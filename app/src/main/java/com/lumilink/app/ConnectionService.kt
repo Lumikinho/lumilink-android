@@ -97,11 +97,19 @@ class ConnectionService : Service() {
             val last = pairs.lastKnown()
             val pcId = pairs.pcId()
             if (last != null && pcId != null) {
-                // Tenta mDNS primeiro; se falhar, usa último IP.
-                val target = discoverPc() ?: last.first
-                log("[discovery] alvo=$target (mdns ou último IP)")
-                doConnect(target, last.second, last.third, null, pcId, isPairing = false)
-                // doConnect só retorna ao cair; aplica backoff exponencial 1s→30s.
+                // Tenta mDNS + último IP (o mDNS pode devolver IP de VPN, ex. Tailscale).
+                val candidates = listOfNotNull(discoverPc(), last.first).distinct()
+                var stoodUp = false
+                for (target in candidates) {
+                    log("[discovery] tentando $target …")
+                    val t0 = android.os.SystemClock.elapsedRealtime()
+                    doConnect(target, last.second, last.third, null, pcId, isPairing = false)
+                    // doConnect só retorna ao cair.
+                    if (android.os.SystemClock.elapsedRealtime() - t0 >= 5000) { stoodUp = true; break }
+                    log("[conn] $target falhou rápido, tentando próximo candidato…")
+                }
+                if (stoodUp) backoff = 1000L // conectou bem: reseta o backoff
+                // aplica backoff exponencial 1s→30s.
                 log("[conn] reconectando em ${backoff}ms…")
                 delay(backoff); backoff = minOf(backoff * 2, 30_000)
             } else {
