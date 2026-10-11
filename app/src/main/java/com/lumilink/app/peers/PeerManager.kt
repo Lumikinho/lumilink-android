@@ -106,7 +106,13 @@ class PeerManager(
             inboxes[c]?.deliver(m); Unit
         }
         router.register("ping") { c, m ->
-            c.send(Message.create("pong", JSONObject().put("echo", m.id))); Unit
+            c.send(Message.create("pong", JSONObject().put("echo", m.id)))
+            if (m.payload.optBoolean("manual", false)) {
+                val id = c.deviceId
+                val name = if (id != null) peers.get(id)?.name ?: id else "?"
+                notifyPing("Ping recebido", "De $name.")
+            }
+            Unit
         }
         router.register("pong") { c, m ->
             sessions[c.deviceId]?.missed = 0
@@ -319,12 +325,12 @@ class PeerManager(
         log(if (sent) "[profile] profile_update enviado." else "[profile] sem conexão — update irá ao (re)conectar.")
     }
 
-    // Ping manual com medida: loga o RTT ou a falha.
+    // Ping manual com medida: notifica o RTT aqui e avisa o outro lado.
     suspend fun pingPeer(id: String) {
         val s = sessions[id] ?: throw IOException("par desconhecido.")
         val l = s.link ?: throw IOException("sem conexão ativa.")
         if (!l.isOpen()) throw IOException("sem conexão ativa.")
-        val ping = Message.create("ping")
+        val ping = Message.create("ping", JSONObject().put("manual", true))
         val d = CompletableDeferred<Long>()
         pendingPings[ping.id] = d
         val t0 = SystemClock.elapsedRealtime()
@@ -332,7 +338,9 @@ class PeerManager(
             l.send(ping)
             withTimeout(10_000) { d.await() }
             val name = peers.get(id)?.name ?: id
-            log("[ping] $name: pong em ${SystemClock.elapsedRealtime() - t0}ms.")
+            val ms = SystemClock.elapsedRealtime() - t0
+            log("[ping] $name: pong em ${ms}ms.")
+            notifyPing("Pong recebido", "$name em ${ms}ms.")
         } finally {
             pendingPings.remove(ping.id)
         }
@@ -722,6 +730,21 @@ class PeerManager(
         for ((_, s) in sessions) {
             val link = s.link
             if (link != null && !link.outgoing && link.ctx === ctx && !link.isOpen()) detach(link)
+        }
+    }
+
+    private fun notifyPing(title: String, text: String) {
+        try {
+            val nm = appCtx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            nm.createNotificationChannel(android.app.NotificationChannel(
+                "lumilink_ping", "LumiLink ping", android.app.NotificationManager.IMPORTANCE_DEFAULT))
+            val n = androidx.core.app.NotificationCompat.Builder(appCtx, "lumilink_ping")
+                .setContentTitle(title).setContentText(text)
+                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                .setAutoCancel(true).setTimeoutAfter(8000).build()
+            nm.notify((1000 + Math.random() * 8000).toInt(), n)
+        } catch (e: Exception) {
+            log("[ping] notificação falhou: ${e.message}")
         }
     }
 

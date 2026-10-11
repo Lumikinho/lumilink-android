@@ -90,7 +90,7 @@ Sem QR. Dialer = quem disca (§3); listener = quem escuta:
 | `auth` | listener→dialer | `{ nonce }` |
 | `auth` | dialer→listener | `{ hmac, nonce }` |
 | `auth_ok` | listener→dialer | `{ hmac }` (reconexão) ou `{ secret, deviceId, profile }` (pareamento) |
-| `ping` / `pong` | ambos | `{}` / `{ echo }` — 15 s; 3 faltas = caída |
+| `ping` / `pong` | ambos | `{}` / `{ echo }` — 15 s; 3 faltas = caída. Manual: `ping{manual:true}` — o outro lado mostra notificação ("Ping de X"); quem enviou mostra o RTT ("Pong em Nms") |
 | `bye` | ambos | `{ reason }`: `not-paired\|bad-hmac\|duplicate\|rate-limited\|going-away` |
 | `profile` / `profile_update` | ambos | `{ name, photoHash }` |
 | `profile_photo_request` | ambos | `{}` |
