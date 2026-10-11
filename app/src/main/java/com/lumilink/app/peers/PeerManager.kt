@@ -125,7 +125,9 @@ class PeerManager(
             Unit
         }
         router.register("bye") { c, m ->
-            log("[conn] bye de ${c.deviceId ?: "?"} (${m.payload.optString("reason")})."); Unit
+            log("[conn] bye de ${c.deviceId ?: "?"} (${m.payload.optString("reason")}).")
+            sessions.values.firstOrNull { it.link?.ctx === c }?.link?.let { detach(it) }
+            Unit
         }
         router.register("echo_response") { _, m -> log("[echo] eco: ${m.payload.optString("text")}"); Unit }
     }
@@ -260,13 +262,19 @@ class PeerManager(
     suspend fun reconnectNow(id: String) {
         val s = sessions[id] ?: return
         s.backoff = 200
-        s.link?.close?.invoke()
+        s.link?.let {
+            try { it.send(Message.create("bye", JSONObject().put("reason", "going-away"))) } catch (e: Exception) { }
+            try { it.close() } catch (e: Exception) { }
+        }
         log("[conn] reconexão forçada de $id.")
     }
 
     suspend fun forget(id: String) {
         val s = sessions.remove(id)
-        try { s?.link?.close?.invoke() } catch (e: Exception) { }
+        s?.link?.let {
+            try { it.send(Message.create("bye", JSONObject().put("reason", "going-away"))) } catch (e: Exception) { }
+            try { it.close() } catch (e: Exception) { }
+        }
         peers.forget(id)
         log("[pair] esquecido $id.")
         changed()
@@ -297,6 +305,9 @@ class PeerManager(
     // ---- descoberta ----
     private fun onPeerSeen(id: String, ip: String, port: Int) {
         if (id == myId) {
+            // Próprio anúncio (loopback mDNS) — ignora; colisão real seria
+            // meu id vindo de outro endpoint.
+            if (port == myPort && Pairing.localIps().contains(ip)) return
             log("[mdns] AVISO: outro nó anuncia MEU deviceId — colisão de UUID!")
             return
         }
@@ -590,7 +601,8 @@ class PeerManager(
         link.pingJob?.cancel()
         link.pingJob = scope.launch {
             try {
-                while (isActive && link.isOpen()) {
+                while (isActive) {
+                    if (!link.isOpen()) { detach(link); break } // socket mudou: derruba na hora
                     delay(15_000)
                     try {
                         link.send(Message.create("ping"))

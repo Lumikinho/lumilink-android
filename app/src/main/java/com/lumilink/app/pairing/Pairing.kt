@@ -101,5 +101,19 @@ class Pairing(private val log: (String) -> Unit) {
             } catch (e: Exception) { }
             return fallback ?: "127.0.0.1"
         }
+        // Todos os IPv4 locais (p/ detectar o próprio anúncio no mDNS).
+        fun localIps(): Set<String> {
+            val out = mutableSetOf<String>()
+            try {
+                for (ni in java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                    if (!ni.isUp || ni.isLoopback) continue
+                    for (addr in java.util.Collections.list(ni.inetAddresses)) {
+                        if (addr is java.net.Inet4Address && !addr.isLoopbackAddress)
+                            addr.hostAddress?.let { out += it }
+                    }
+                }
+            } catch (e: Exception) { }
+            return out
+        }
     }
 }
