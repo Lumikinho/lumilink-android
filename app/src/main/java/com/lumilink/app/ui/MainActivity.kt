@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
         }
         reg("LUMILINK_STATE") { state = it.getStringExtra("state") ?: state }
         reg("LUMILINK_LOG") { logs = (logs + "> ${it.getStringExtra("line")}".takeLast(200)).takeLast(60) }
+        refreshState() // lê o estado persistido (caso o service já esteja conectado)
 
         CoroutineScope(Dispatchers.IO).launch { startOnBoot = pairs.startOnBoot() }
 
@@ -75,6 +76,16 @@ class MainActivity : ComponentActivity() {
             startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                 android.net.Uri.parse("package:$packageName")))
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshState() // volta pra tela sempre mostra o estado atual
+    }
+
+    private fun refreshState() {
+        val sp = getSharedPreferences("svc", MODE_PRIVATE)
+        state = sp.getString("state", null) ?: state
     }
 
     override fun onDestroy() { receivers.forEach { unregisterReceiver(it) }; super.onDestroy() }

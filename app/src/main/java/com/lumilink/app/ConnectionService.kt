@@ -76,6 +76,9 @@ class ConnectionService : Service() {
 
     private fun setState(s: String) {
         state = s
+        // Persiste p/ a Activity ler ao abrir (broadcasts não são sticky).
+        getSharedPreferences("svc", MODE_PRIVATE).edit()
+            .putString("state", s).putString("pc", pcName).apply()
         val nm = getSystemService(NotificationManager::class.java)
         nm.notify(NOTIF, NotificationCompat.Builder(this, CH)
             .setContentTitle("LumiLink").setContentText(if (s == "Desconectado") s else "Conectado a $pcName")
