@@ -1,19 +1,19 @@
-# lumilink-android — celular (Kotlin, minSdk 26)
+# lumilink-android — nó P2P (Kotlin, minSdk 26)
 
-Lado Android do LumiLink: Foreground Service que conecta, pareia uma vez (QR)
-e reconecta sozinho. App irmão: `lumilink-pc`.
+Nó simétrico do LumiLink: **servidor (TLS próprio + mDNS) e cliente** (OkHttp) ao
+mesmo tempo. Conversa com PC, Android ou ambos. App irmão: `lumilink-pc`.
+Protocolo: `PROTOCOL.md` (idêntico nas 3 combinações).
 
 ## O que faz (só a base)
 
-- `ConnectionService` (foreground, notificação fixa "Conectado a \<PC\>").
-- Pareamento: lê o QR com Google Code Scanner, valida o certificado pelo
-  `fingerprint` (pinning manual), envia `hello` com token + perfil.
-- Reconexão sem QR: responde ao desafio com HMAC-SHA256; backoff 1s→30s.
-- `ping/pong` 15s (3 faltas = caída); descoberta via `NsdManager`
-  (`_lumilink._tcp`) com fallback para o último IP.
-- Perfil com Photo Picker (sem permissões), avatar de iniciais, troca
-  `profile`/`profile_photo*` por hash SHA-256.
-- Toggle "Iniciar com o sistema" (BOOT_COMPLETED) + pedido de isenção de bateria.
+- `ConnectionService` (foreground) com `PeerManager` multi-par.
+- Servidor `wss` próprio (porta aleatória persistida) + cliente OkHttp com pinning.
+- Anuncia e descobre `_lumilink._tcp` (`NsdManager`); só o menor `deviceId` disca.
+- Pareamento: mostra QR próprio (com código de 6 dígitos) **ou** escaneia/digita
+  (manual: IP + porta + código); auth mútua HMAC; backoff independente por par.
+- Principal: lista de pareados (foto, nome, estado) + Parear / Manual / Escanear /
+  Atualizar; detalhe do par (último IP, Reconectar agora, Esquecer).
+- Perfil com Photo Picker; `profile_update` enviado ao salvar.
 
 ## Como compilar
 
