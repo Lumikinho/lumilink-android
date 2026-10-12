@@ -60,6 +60,16 @@ class ScreenSharer(
         } catch (e: Exception) {
             log("[tela] permissão negada."); return
         }
+        try {
+            // Android 14+: callback obrigatório antes de capturar.
+            proj.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    scope.launch { stop() }
+                }
+            }, android.os.Handler(android.os.Looper.getMainLooper()))
+        } catch (e: Exception) {
+            log("[tela] callback falhou: ${e.message}"); return
+        }
         val metrics = appCtx.resources.displayMetrics
         val w = 720
         val h = (720f * metrics.heightPixels / metrics.widthPixels).toInt().coerceAtMost(1280)
