@@ -28,7 +28,8 @@ class ScreenSharer(
     private val peerName: (String) -> String,
     private val log: (String) -> Unit,
 ) {
-    private val acceptEvents = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
+    @Volatile private var pendingFor: String? = null
+    @Volatile private var acceptEv: CompletableDeferred<Unit>? = null
     @Volatile private var running = false
     @Volatile private var targetPeer = ""
     private var projection: MediaProjection? = null
@@ -43,8 +44,10 @@ class ScreenSharer(
     init {
         router.register("screen_accept") { c, m ->
             try {
-                if (m.payload.optBoolean("accept", false))
-                    acceptEvents[m.payload.optString("forId", "")]?.complete(Unit)
+                // Casa pelo remetente autenticado (não pelo forId): só o par-alvo vale.
+                val from = c.deviceId
+                if (m.payload.optBoolean("accept", false) && from != null && from == pendingFor)
+                    acceptEv?.complete(Unit)
             } catch (e: Exception) { }
             Unit
         }
@@ -108,7 +111,8 @@ class ScreenSharer(
         running = true
         // oferta + espera aceite (30s)
         val ev = CompletableDeferred<Unit>()
-        acceptEvents[peerId] = ev
+        pendingFor = peerId
+        acceptEv = ev
         try {
             if (!manager.sendTo(peerId, Message.create("screen_offer", JSONObject()
                     .put("w", w).put("h", h).put("fps", 30)))) {
@@ -123,7 +127,8 @@ class ScreenSharer(
             log("[tela] transmitindo p/ ${peerName(peerId)}.")
             drainJob = scope.launch(Dispatchers.IO) { drainLoop(peerId) }
         } finally {
-            acceptEvents.remove(peerId)
+            if (pendingFor == peerId) pendingFor = null
+            acceptEv = null
         }
     }
 
