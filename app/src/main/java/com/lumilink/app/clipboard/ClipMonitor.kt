@@ -93,9 +93,8 @@ class ClipMonitor(
                     if (ah != null && seenImage(ah)) return
                     if (ah != null) suppressImage(ah)
                     emit(ClipContent(null, bytes, "image/jpeg", emptyList(), sha(bytes)))
-                } else if (info.size in 1..200L * 1024 * 1024) {
-                    emit(ClipContent(null, null, "", listOf(info), sha("${info.name}:${info.size}".toByteArray())))
                 }
+                // URIs de arquivo: ignoradas de propósito (só texto e imagem).
             }
         } catch (e: Exception) { }
     }
