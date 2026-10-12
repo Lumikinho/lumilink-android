@@ -31,11 +31,12 @@ Camadas: `Transport` (server+client) · `Discovery` (mDNS) · `Pairing` · `Peer
   - Só o nó de **`deviceId` menor (ordem lexicográfica)** inicia a conexão (disco imediatamente).
   - O de `deviceId` **maior** aguarda entrada; se após **10 s** vendo o par (mDNS) não houver
     conexão, ele pode discar (cobre o menor offline).
-- Conexão nova para par já conectado é **recusada** (`bye{reason:"duplicate"}`).
-- Corrida (discagem simultânea): o nó **maior** que receber `hello` **aborta a própria
-  discagem em curso** — a conexão iniciada pelo menor sempre vence. Se mesmo assim duas
-  conexões vivas coexistirem, cada lado fecha deterministicamente a que **não** foi
-  iniciada pelo menor (o menor recusa a entrada com `bye duplicate`; o maior troca).
+  - O maior que receber `hello` com discagem própria em curso **aborta a própria**
+    (a do menor vence).
+- Handshake NUNCA é recusado por duplicidade: ambos os lados autenticam e depois mantêm
+  deterministicamente a conexão **discada pelo menor** (a outra é fechada). Sem isso, um
+  lado com link meio-morto recusava para sempre e o par nunca reconectava (deadlock).
+  `bye{reason:"duplicate"}` segue reservado.
 
 ## 4. Pareamento (primeira vez)
 

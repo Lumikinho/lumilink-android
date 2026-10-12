@@ -524,16 +524,39 @@ class PeerManager(
         }
     }
 
+    // Mantém exatamente UM link: o discado pelo menor. Determinístico nos dois
+    // lados — dispensa recusar handshake (fim do deadlock de duplicada).
+    private suspend fun resolveDuplicates(s: Session, old: Link?, new: Link) {
+        if (old == null) return
+        if (!old.isOpen()) {
+            detach(old)
+            return // velho morto: o novo vale sem disputa
+        }
+        val keepNew = (new.outgoing == (myId < s.id))
+        if (!keepNew) {
+            if (s.link === new) s.link = old
+        }
+        log("[conn] ${s.id}: duplicada resolvida, mantida a discada pelo menor.")
+        val drop = if (keepNew) old else new
+        try { drop.close() } catch (e: Exception) { }
+        detach(drop)
+    }
+
     private suspend fun attachOutgoing(s: Session, ctx: MessageRouter.Ctx, inbox: Inbox, client: PhoneWebSocketClient, ip: String, port: Int) {
-        if (s.link != null) throw IllegalStateException("já conectado")
         val link = Link(true,
             send = { m -> client.send(m) },
             close = { try { client.close() } catch (e: Exception) { } },
             isOpen = { true },
             ctx = ctx, inbox = inbox, tag = client)
+        val old = s.link
         s.link = link; s.state = "Conectado"
         s.lastSeen = System.currentTimeMillis(); s.missed = 0
         ctx.deviceId = s.id; ctx.authenticated = true
+        resolveDuplicates(s, old, link)
+        if (s.link !== link) {
+            inboxes.remove(ctx)
+            throw IOException("link perdido na resolução.")
+        }
         peers.touch(s.id, ip, port)
         log("[conn] ${s.id} via $ip:$port.")
         sendOwnProfile(ctx)
@@ -542,15 +565,20 @@ class PeerManager(
     }
 
     private suspend fun attachIncoming(s: Session, ctx: MessageRouter.Ctx, inbox: Inbox, conn: WsConn) {
-        s.link?.let { detach(it) }
         val link = Link(false,
             send = { m -> conn.send(m.toJson()) },
             close = { conn.close() },
             isOpen = { conn.open },
             ctx = ctx, inbox = inbox, tag = conn)
+        val old = s.link
         s.link = link; s.state = "Conectado"
         s.lastSeen = System.currentTimeMillis(); s.missed = 0
         ctx.deviceId = s.id; ctx.authenticated = true
+        resolveDuplicates(s, old, link)
+        if (s.link !== link) {
+            inboxes.remove(ctx)
+            return
+        }
         sendOwnProfile(ctx)
         startPing(s, link)
     }
@@ -627,17 +655,7 @@ class PeerManager(
                 s.dialJob?.cancel(CancellationException("yield"))
                 log("[conn] $id: abortei minha discagem (entrada do menor vence).")
             }
-            s.link?.let { cur ->
-                if (myId < id) {
-                    ctx.send(Message.create("bye", JSONObject().put("reason", "duplicate")))
-                    conn.close()
-                    log("[conn] duplicada de $id recusada (eu disco).")
-                    return
-                } else {
-                    detach(cur)
-                    log("[conn] $id rediscou certo; assumindo entrada.")
-                }
-            }
+            // Sem recusa: autentica e resolve depois (a discada pelo menor vence).
             val secret2 = peers.getSecret(id)
             if (secret2 == null) { conn.close(); return }
             val nonce = Pairing.newNonce()
