@@ -63,6 +63,7 @@ class ClipSync(
                 log("[clip] texto difundido (${c.text.length} ch).")
             } else if (c.imageBytes != null) {
                 monitor.suppress(c.hash)
+                ClipMonitor.avgHash(c.imageBytes)?.let { monitor.suppressImage(it) }
                 val f = File(store.clipDir, "clip-${System.currentTimeMillis()}.jpg")
                 f.writeBytes(c.imageBytes)
                 store.insert("image", mime = "image/jpeg", path = f.absolutePath,
@@ -164,6 +165,7 @@ class ClipSync(
                 val f = File(store.clipDir, "clip-${System.currentTimeMillis()}.jpg")
                 f.writeBytes(bytes)
                 monitor.suppress(ClipMonitor.sha(bytes))
+                ClipMonitor.avgHash(bytes)?.let { monitor.suppressImage(it) }
                 store.insert("image", mime = "image/jpeg", path = f.absolutePath,
                     size = bytes.size.toLong(), sha = hash, source = id, peer = id)
                 monitor.copyImage(bytes)

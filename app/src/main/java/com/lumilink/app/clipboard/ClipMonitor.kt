@@ -29,6 +29,7 @@ class ClipMonitor(
     private val appCtx = ctx.applicationContext
     private val cm = appCtx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     private val recent = mutableMapOf<String, Long>()
+    private val recentImg = mutableMapOf<Long, Long>()
     private var lastHash = ""
 
     var onChange: ((ClipContent) -> Unit)? = null
@@ -49,6 +50,21 @@ class ClipMonitor(
         val now = System.currentTimeMillis()
         recent.entries.removeAll { it.value < now }
         recent[hash] = now + secs * 1000
+    }
+
+    // Anti-eco por CONTEÚDO (aHash): sobrevive a re-encode entre pares.
+    @Synchronized
+    fun suppressImage(h: Long, secs: Long = 30) {
+        val now = System.currentTimeMillis()
+        recentImg.entries.removeAll { it.value < now }
+        recentImg[h] = now + secs * 1000
+    }
+
+    @Synchronized
+    private fun seenImage(h: Long): Boolean {
+        val now = System.currentTimeMillis()
+        recentImg.entries.removeAll { it.value < now }
+        return recentImg.keys.any { java.lang.Long.bitCount(it xor h) <= 8 }
     }
 
     @Synchronized
@@ -73,6 +89,9 @@ class ClipMonitor(
                 val info = resolve(uri) ?: return
                 if (info.mime.startsWith("image/")) {
                     val bytes = readCapped(uri, 3 * 1024 * 1024) ?: return
+                    val ah = avgHash(bytes)
+                    if (ah != null && seenImage(ah)) return
+                    if (ah != null) suppressImage(ah)
                     emit(ClipContent(null, bytes, "image/jpeg", emptyList(), sha(bytes)))
                 } else if (info.size in 1..200L * 1024 * 1024) {
                     emit(ClipContent(null, null, "", listOf(info), sha("${info.name}:${info.size}".toByteArray())))
@@ -170,5 +189,29 @@ class ClipMonitor(
     companion object {
         fun sha(b: ByteArray): String =
             MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
+
+        fun avgHash(bytes: ByteArray): Long? {
+            return try {
+                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+                val small = android.graphics.Bitmap.createScaledBitmap(bmp, 8, 8, false)
+                    ?: run { bmp.recycle(); return null }
+                val px = IntArray(64)
+                small.getPixels(px, 0, 8, 0, 0, 8, 8)
+                val gray = IntArray(64)
+                var sum = 0L
+                for (i in 0 until 64) {
+                    val g = (android.graphics.Color.red(px[i]) * 299 +
+                        android.graphics.Color.green(px[i]) * 587 +
+                        android.graphics.Color.blue(px[i]) * 114) / 1000
+                    gray[i] = g
+                    sum += g
+                }
+                val avg = sum / 64.0
+                var h = 0L
+                for (i in 0 until 64) if (gray[i] > avg) h = h or (1L shl i)
+                if (small !== bmp) { small.recycle(); bmp.recycle() } else small.recycle()
+                h
+            } catch (e: Exception) { null }
+        }
     }
 }
