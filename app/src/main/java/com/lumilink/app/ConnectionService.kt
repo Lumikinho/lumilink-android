@@ -128,7 +128,14 @@ class ConnectionService : Service() {
             .setContentTitle("LumiLink").setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth).build()
         com.lumilink.app.notification.FocusIsland.attach(this, n, "LumiLink", text)
-        startForeground(NOTIF, n)
+        // Sempre dataSync aqui: mediaProjection só com captura ativa (senão o
+        // sistema derruba o service no boot com SecurityException).
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            startForeground(NOTIF, n,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(NOTIF, n)
+        }
     }
 
     private fun updateNotif() {
