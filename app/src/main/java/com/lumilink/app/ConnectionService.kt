@@ -23,8 +23,9 @@ import kotlinx.coroutines.*
 class ConnectionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var manager: PeerManager? = null
-    private var fileTransfer: com.lumilink.app.transfer.FileTransfer? = null
     private var mediaRemote: com.lumilink.app.media.MediaRemote? = null
+    private var fileTransfer: com.lumilink.app.transfer.FileTransfer? = null
+    private var screenSharer: com.lumilink.app.screen.ScreenSharer? = null
     private var lastPcPeer = ""
 
     companion object {
@@ -104,6 +105,13 @@ class ConnectionService : Service() {
                     peerName = { id -> peers.get(id)?.name ?: id },
                     notify = { t, x -> mgr.notifyUser(t, x) },
                     log = logFn).also { fileTransfer = it }
+                val sharer = com.lumilink.app.screen.ScreenSharer(
+                    c.applicationContext, scope, router, mgr,
+                    peerName = { id -> peers.get(id)?.name ?: id },
+                    log = logFn)
+                screenSharer = sharer
+                com.lumilink.app.screen.ScreenReceiver(
+                    c.applicationContext, router, mgr, peers, logFn).register()
                 clipMonitor.start()
                 mgr.start()
                 log("[svc] nó ${settings.deviceId().take(8)} porta ${settings.port()}")
@@ -231,6 +239,23 @@ class ConnectionService : Service() {
                 val cmd = i.getStringExtra("cmd") ?: return START_STICKY
                 onMediaCmd(cmd, null)
             }
+            "screen_start" -> {
+                val peer = i.getStringExtra("peerId")
+                @Suppress("DEPRECATION")
+                val data: Intent? = i.getParcelableExtra("data")
+                val code = i.getIntExtra("code", 0)
+                if (peer == null || data == null || code == 0) {
+                    log("[tela] faltando par ou permissão.")
+                } else scope.launch {
+                    try {
+                        ensureFgMediaProjection()
+                        screenSharer?.start(peer, code, data)
+                    } catch (e: Exception) { log("[tela] falhou: ${e.message}") }
+                }
+            }
+            "screen_stop" -> {
+                scope.launch { try { screenSharer?.stop() } catch (e: Exception) { } }
+            }
             "reconnect_now" -> scope.launch {
                 i.getStringExtra("peerId")?.let { manager?.reconnectNow(it) }
             }
@@ -252,6 +277,24 @@ class ConnectionService : Service() {
                 else log("[media-pc] comando: $cmd.")
             } catch (e: Exception) { log("[media-pc] comando falhou: ${e.message}") }
         }
+    }
+
+    // Captura de tela (API 34+) exige o tipo mediaProjection no foreground.
+    private fun ensureFgMediaProjection() {
+        try {
+            if (android.os.Build.VERSION.SDK_INT < 29) return
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(NotificationChannel(CH, "LumiLink", NotificationManager.IMPORTANCE_LOW))
+            val peers = try { manager?.getPeers() ?: emptyList() } catch (e: Exception) { emptyList() }
+            val up = peers.count { it.state == "Conectado" }
+            val text = if (up == 0) "Desconectado" else "Conectado a $up dispositivo(s)"
+            val n = NotificationCompat.Builder(this, CH)
+                .setContentTitle("LumiLink").setContentText(text)
+                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth).build()
+            startForeground(NOTIF, n,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+        } catch (e: Exception) { log("[tela] foreground mídia falhou: ${e.message}") }
     }
 
     override fun onBind(i: Intent?): IBinder? = null

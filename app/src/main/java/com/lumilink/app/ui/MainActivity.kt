@@ -43,6 +43,18 @@ class MainActivity : ComponentActivity() {
     private var startOnBoot by mutableStateOf(false)
     private val receivers = mutableListOf<BroadcastReceiver>()
     private lateinit var settings: AppSettings
+    private var pendingScreenPeer: String? = null
+
+    private val screenConsent =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+            val peer = pendingScreenPeer
+            pendingScreenPeer = null
+            if (res.resultCode == RESULT_OK && res.data != null && peer != null) {
+                startService(Intent(this, ConnectionService::class.java)
+                    .putExtra("action", "screen_start").putExtra("peerId", peer)
+                    .putExtra("code", res.resultCode).putExtra("data", res.data))
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -106,6 +118,10 @@ class MainActivity : ComponentActivity() {
                     Button(onClick = { startActivity(Intent(this@MainActivity, ClipActivity::class.java)) }) {
                         Text("Área de transferência")
                     }
+                    Button(onClick = {
+                        startService(Intent(this@MainActivity, ConnectionService::class.java)
+                            .putExtra("action", "screen_stop"))
+                    }) { Text("Parar tela") }
                     if (trackLine.isNotEmpty()) Text("Tocando: $trackLine")
                     Text(islandState, style = MaterialTheme.typography.bodySmall)
                     Row {
@@ -135,6 +151,13 @@ class MainActivity : ComponentActivity() {
                                     startService(Intent(this@MainActivity, ConnectionService::class.java)
                                         .putExtra("action", "ping_peer").putExtra("peerId", p.deviceId))
                                 }) { Text("Ping") }
+                                Spacer(Modifier.width(4.dp))
+                                Button(onClick = {
+                                    pendingScreenPeer = p.deviceId
+                                    val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
+                                        as android.media.projection.MediaProjectionManager
+                                    screenConsent.launch(mpm.createScreenCaptureIntent())
+                                }) { Text("Tela") }
                             }
                         }
                     }

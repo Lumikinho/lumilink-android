@@ -85,3 +85,10 @@ o celular mostra como **player de mídia do sistema** (notificação MediaStyle,
 lockscreen, painel rápido, e ilha por cima) com Anterior/Tocar/Pausar/Próxima
 e barra de seek — os comandos voltam como `media_cmd`. Vale em qualquer
 fabricante; requer `androidx.media:media`.
+
+## Compartilhar tela (Android→Android)
+
+Botão **Tela** na linha do par (pede permissão de captura) transmite H.264
+720p pelo canal `wss` (`screen_offer/accept/data/stop`); o outro lado toca em
+**Assistir** na notificação (somente ver, sem controle). Gasta bateria: use
+**Parar tela** ao terminar.
