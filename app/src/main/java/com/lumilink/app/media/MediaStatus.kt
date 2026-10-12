@@ -24,14 +24,17 @@ object MediaStatus {
 
     var onStatus: ((TrackInfo?) -> Unit)? = null
 
+    @Volatile private var boundListener: MediaListener? = null
+
     private var lastTitle = ""
     private var lastArtist = ""
     private var lastApp = ""
 
-    fun refresh(ctx: Context, force: Boolean = false) {
+    fun refresh(ctx: Context, nls: MediaListener? = null) {
         val now = android.os.SystemClock.elapsedRealtime()
-        if (!force && now - lastQuery < 1500) return // debounce: notificação não é termômetro
+        if (now - lastQuery < 1500) return // debounce: notificação não é termômetro
         lastQuery = now
+        if (nls != null) boundListener = nls
         try {
             val msm = ctx.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
             val comp = ComponentName(ctx, MediaListener::class.java)
@@ -69,8 +72,15 @@ object MediaStatus {
         try {
             val c = controller
             if (c == null) {
+                // Sem sessão viva: procura notificação de mídia ativa (pausada/parada).
+                val found = boundListener?.let { scanNotifications(ctx, it) }
+                if (found != null) {
+                    lastTitle = found.title; lastArtist = found.artist; lastApp = found.app
+                    onStatus?.invoke(found)
+                    return
+                }
                 lastTitle = ""; lastArtist = ""; lastApp = ""
-                onStatus?.invoke(null) // app fechado/sem sessão: aí sim remove
+                onStatus?.invoke(null) // app fechado/sem nada: aí sim remove
                 return
             }
             val md = try { c.metadata } catch (e: Exception) { null }
@@ -89,6 +99,11 @@ object MediaStatus {
                 lastTitle = title; lastArtist = artist; lastApp = app
             }
             if (lastTitle.isEmpty()) {
+                boundListener?.let { scanNotifications(ctx, it) }?.let {
+                    lastTitle = it.title; lastArtist = it.artist; lastApp = it.app
+                    onStatus?.invoke(it)
+                    return
+                }
                 onStatus?.invoke(null) // nunca houve mídia: nada a mostrar
                 return
             }
@@ -108,9 +123,32 @@ object MediaStatus {
     }
 }
 
+    // Fallback: notificação de mídia ativa de outro app (pausada/parada).
+    private fun scanNotifications(ctx: Context, nls: MediaListener): TrackInfo? {
+        return try {
+            val notifs = try { nls.activeNotifications } catch (e: Exception) { return null } ?: return null
+            for (sbn in notifs) {
+                if (sbn.packageName == ctx.packageName) continue // nunca a nossa (eco)
+                val n = sbn.notification ?: continue
+                val extras = n.extras ?: continue
+                val hasSession = extras.containsKey("android.mediaSession")
+                if (!hasSession && n.category != android.app.Notification.CATEGORY_TRANSPORT) continue
+                val title = extras.getCharSequence(android.app.Notification.EXTRA_TITLE)
+                    ?.toString()?.takeIf { it.isNotBlank() } ?: continue
+                val artist = extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString() ?: ""
+                var app = sbn.packageName
+                try {
+                    val info = ctx.packageManager.getApplicationInfo(sbn.packageName, 0)
+                    app = ctx.packageManager.getApplicationLabel(info).toString()
+                } catch (e: Exception) { }
+                return TrackInfo(title, artist, app, "stopped")
+            }
+            null
+        } catch (e: Exception) { null }
+    }
 class MediaListener : NotificationListenerService() {
     override fun onListenerConnected() {
-        MediaStatus.refresh(this)
+        MediaStatus.refresh(this, this)
         sendBroadcast(Intent("LUMILINK_MEDIA_REQ"))
     }
 
@@ -120,11 +158,11 @@ class MediaListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification?) {
         if (sbn?.packageName == packageName) return // ignora as nossas (senão vira loop)
-        MediaStatus.refresh(this)
+        MediaStatus.refresh(this, this)
     }
 
     override fun onNotificationRemoved(sbn: android.service.notification.StatusBarNotification?) {
         if (sbn?.packageName == packageName) return
-        MediaStatus.refresh(this)
+        MediaStatus.refresh(this, this)
     }
 }
