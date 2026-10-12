@@ -77,3 +77,11 @@ aparecem na ilha; sem suporte caem para notificação normal sozinhas.
 Com **Acesso a notificações** liberado (botão na tela principal), o app lê a
 sessão de mídia ativa (música, vídeo) e mostra `▶ título — artista` na ilha e
 na tela principal. Sem mídia, a notificação sai sozinha.
+
+## Controle remoto do PC (MediaSession)
+
+O PC espelha o que toca lá (`media_pc`: título, artista, capa 300px, posição);
+o celular mostra como **player de mídia do sistema** (notificação MediaStyle,
+lockscreen, painel rápido, e ilha por cima) com Anterior/Tocar/Pausar/Próxima
+e barra de seek — os comandos voltam como `media_cmd`. Vale em qualquer
+fabricante; requer `androidx.media:media`.

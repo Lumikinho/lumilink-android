@@ -31,7 +31,8 @@ object MediaStatus {
         try {
             val msm = ctx.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
             val comp = ComponentName(ctx, MediaListener::class.java)
-            val sessions = try { msm.getActiveSessions(comp) } catch (e: Exception) { emptyList() }
+            val all = try { msm.getActiveSessions(comp) } catch (e: Exception) { emptyList() }
+            val sessions = all.filter { it.packageName != ctx.packageName } // nunca a nossa (eco)
             val next = sessions.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
                 ?: sessions.firstOrNull()
             val old = controller

@@ -23,6 +23,8 @@ import kotlinx.coroutines.*
 class ConnectionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var manager: PeerManager? = null
+    private var mediaRemote: com.lumilink.app.media.MediaRemote? = null
+    private var lastPcPeer = ""
 
     companion object {
         const val CH = "lumilink"
@@ -48,6 +50,47 @@ class ConnectionService : Service() {
                     sendBroadcast(Intent("LUMILINK_CHANGED"))
                 }
                 manager = mgr
+                mediaRemote = com.lumilink.app.media.MediaRemote(
+                    c.applicationContext,
+                    sendCmd = { cmd, pos ->
+                        scope.launch {
+                            try {
+                                val peer = lastPcPeer
+                                if (peer.isEmpty()) return@launch
+                                val m = com.lumilink.app.messaging.Message.create("media_cmd",
+                                    org.json.JSONObject().put("cmd", cmd).put("pos", pos ?: -1))
+                                mgr.sendTo(peer, m)
+                            } catch (e: Exception) { log("[media-pc] comando falhou: ${e.message}") }
+                        }
+                        Unit
+                    },
+                    log = logFn,
+                )
+                router.register("media_pc") { rc, rm ->
+                    val peerId = rc.deviceId
+                    if (!rc.authenticated || peerId == null) return@register Unit
+                    try {
+                        lastPcPeer = peerId
+                        val title = rm.payload.optString("title", "")
+                        if (title.isEmpty()) {
+                            mediaRemote?.clear()
+                            return@register Unit
+                        }
+                        val artB64 = rm.payload.optString("art", "")
+                        val art = if (artB64.isEmpty()) null else try {
+                            android.util.Base64.decode(artB64, android.util.Base64.DEFAULT)
+                        } catch (e: Exception) { null }
+                        mediaRemote?.update(
+                            title,
+                            rm.payload.optString("artist", ""),
+                            art,
+                            rm.payload.optLong("dur", 0),
+                            rm.payload.optLong("pos", 0),
+                            rm.payload.optBoolean("playing", false),
+                        )
+                    } catch (e: Exception) { log("[media-pc] ignorado: ${e.message}") }
+                    Unit
+                }
                 com.lumilink.app.media.MediaStatus.onStatus = { track -> onTrack(track) }
                 val mediaReq = object : android.content.BroadcastReceiver() {
                     override fun onReceive(c: Context, i: Intent) {
@@ -173,6 +216,18 @@ class ConnectionService : Service() {
                 if (id == null) log("[ping] sem par.")
                 else try { manager?.pingPeer(id) }
                 catch (e: Exception) { log("[ping] sem resposta (${e.message}).") }
+            }
+            "media_action" -> {
+                // toggle/play/pause/next/prev: o PC resolve (toggle nativo).
+                val cmd = i.getStringExtra("cmd") ?: return START_STICKY
+                scope.launch {
+                    try {
+                        val peer = lastPcPeer
+                        if (peer.isEmpty()) return@launch
+                        manager?.sendTo(peer, com.lumilink.app.messaging.Message.create("media_cmd",
+                            org.json.JSONObject().put("cmd", cmd).put("pos", -1)))
+                    } catch (e: Exception) { log("[media-pc] comando falhou: ${e.message}") }
+                }
             }
             "reconnect_now" -> scope.launch {
                 i.getStringExtra("peerId")?.let { manager?.reconnectNow(it) }
