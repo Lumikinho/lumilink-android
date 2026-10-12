@@ -143,12 +143,7 @@ class ConnectionService : Service() {
         }
         nm.createNotificationChannel(NotificationChannel("lumilink_media",
             "LumiLink mídia", NotificationManager.IMPORTANCE_DEFAULT))
-        val mark = when (track.state) {
-            "playing" -> "▶ "
-            "paused" -> "⏸ "
-            else -> "⏹ "
-        }
-        val title = mark + track.title
+        val title = track.title
         val text = listOf(track.artist, track.app).filter { it.isNotBlank() }.joinToString(" • ")
         val n = NotificationCompat.Builder(this, "lumilink_media")
             .setContentTitle(title).setContentText(text)

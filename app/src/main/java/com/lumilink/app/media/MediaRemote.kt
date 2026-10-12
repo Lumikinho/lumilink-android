@@ -41,13 +41,8 @@ class MediaRemote(
             if (art != null) {
                 try { lastArt = BitmapFactory.decodeByteArray(art, 0, art.size) } catch (e: Exception) { }
             }
-            val mark = when {
-                stopped -> "⏹ "
-                playing -> "▶ "
-                else -> "⏸ "
-            }
             session.setMetadata(MediaMetadataCompat.Builder()
-                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, mark + title)
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
                 .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist)
                 .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, dur)
                 .putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, lastArt)
@@ -64,7 +59,7 @@ class MediaRemote(
                     pos, if (playing) 1f else 0f)
                 .build())
             session.isActive = true
-            post(mark + title, artist, playing)
+            post(title, artist, playing)
         } catch (e: Exception) { log("[media-pc] update falhou: ${e.message}") }
     }
 

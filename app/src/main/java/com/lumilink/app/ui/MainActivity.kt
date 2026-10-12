@@ -65,14 +65,7 @@ class MainActivity : ComponentActivity() {
         reg("LUMILINK_LOG") { logs = (logs + "> ${it.getStringExtra("line")}".takeLast(200)).takeLast(60) }
         reg("LUMILINK_MEDIA") {
             val t = it.getStringExtra("title")
-            trackLine = if (t == null) "" else {
-                val mark = when (it.getStringExtra("state")) {
-                    "playing" -> "▶ "
-                    "paused" -> "⏸ "
-                    else -> "⏹ "
-                }
-                "$mark$t — ${it.getStringExtra("artist")}"
-            }
+            trackLine = if (t == null) "" else "$t — ${it.getStringExtra("artist")}"
         }
         refreshPeers()
         refreshListenerState()
