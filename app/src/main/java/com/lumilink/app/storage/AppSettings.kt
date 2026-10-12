@@ -15,6 +15,7 @@ class AppSettings(private val ctx: Context) {
         private val DEVICE_ID = stringPreferencesKey("device_id")
         private val PORT = intPreferencesKey("port")
         private val START_ON_BOOT = booleanPreferencesKey("start_on_boot")
+        private val CLIP_SYNC = booleanPreferencesKey("clip_sync")
     }
 
     // UUID v4 obrigatório. Id legado (não-UUID) migra uma vez para UUID novo.
@@ -45,4 +46,7 @@ class AppSettings(private val ctx: Context) {
 
     suspend fun setStartOnBoot(v: Boolean) { ctx.cfg.edit { it[START_ON_BOOT] = v } }
     suspend fun startOnBoot(): Boolean = ctx.cfg.data.map { it[START_ON_BOOT] == true }.first()
+    suspend fun setClipSync(v: Boolean) { ctx.cfg.edit { it[CLIP_SYNC] = v } }
+    suspend fun clipSync(): Boolean = ctx.cfg.data.map { it[CLIP_SYNC] != false }.first()
+    fun clipSyncBlocking(): Boolean = kotlinx.coroutines.runBlocking { clipSync() }
 }

@@ -7,6 +7,9 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.lumilink.app.messaging.MessageRouter
+import com.lumilink.app.clipboard.ClipMonitor
+import com.lumilink.app.clipboard.ClipSync
+import com.lumilink.app.storage.ClipStore
 import com.lumilink.app.pairing.Pairing
 import com.lumilink.app.peers.PeerManager
 import com.lumilink.app.profile.ProfileStore
@@ -36,13 +39,23 @@ class ConnectionService : Service() {
                 val certs = CertManager(c, logFn)
                 val peers = PeerStore(c)
                 val profiles = ProfileStore(c, settings.deviceId())
+                val router = MessageRouter(logFn)
                 val mgr = PeerManager(c.applicationContext, scope, settings, certs,
-                    peers, profiles, Pairing(logFn), MessageRouter(logFn), logFn)
+                    peers, profiles, Pairing(logFn), router, logFn)
                 mgr.onChanged = {
                     updateNotif()
                     sendBroadcast(Intent("LUMILINK_CHANGED"))
                 }
                 manager = mgr
+                val clipStore = ClipStore(c)
+                val clipMonitor = ClipMonitor(c, scope)
+                ClipSync(c.applicationContext, scope, router, mgr, clipStore, clipMonitor,
+                    settings.deviceId(),
+                    isEnabled = { settings.clipSyncBlocking() },
+                    peerName = { id -> peers.get(id)?.name ?: id },
+                    notify = { t, x -> mgr.notifyUser(t, x) },
+                    log = logFn)
+                clipMonitor.start()
                 mgr.start()
                 log("[svc] nó ${settings.deviceId().take(8)} porta ${settings.port()}")
             } catch (e: Exception) {

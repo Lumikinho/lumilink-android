@@ -357,6 +357,22 @@ class PeerManager(
         log(if (sent) "[conn] ping manual enviado." else "[conn] sem conexão ativa.")
     }
 
+    suspend fun broadcast(msg: Message) {
+        for ((_, s) in sessions) {
+            val l = s.link
+            if (l != null) try { if (l.isOpen()) l.send(msg) } catch (e: Exception) { }
+        }
+    }
+
+    suspend fun sendTo(id: String, msg: Message): Boolean {
+        val l = sessions[id]?.link ?: return false
+        return try {
+            if (!l.isOpen()) false else { l.send(msg); true }
+        } catch (e: Exception) { false }
+    }
+
+    fun notifyUser(title: String, text: String) = notifyPing(title, text)
+
     // ---- descoberta ----
     private fun onPeerSeen(id: String, ip: String, port: Int) {
         if (id == myId) {

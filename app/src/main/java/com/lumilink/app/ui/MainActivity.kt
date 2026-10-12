@@ -95,6 +95,9 @@ class MainActivity : ComponentActivity() {
                     Button(onClick = { startActivity(Intent(this@MainActivity, ProfileActivity::class.java)) }) {
                         Text("Meu perfil")
                     }
+                    Button(onClick = { startActivity(Intent(this@MainActivity, ClipActivity::class.java)) }) {
+                        Text("Área de transferência")
+                    }
                     Text("Pareados:", style = MaterialTheme.typography.titleSmall)
                     LazyColumn(Modifier.height(220.dp)) {
                         items(peers, key = { it.deviceId }) { p ->
