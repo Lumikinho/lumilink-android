@@ -36,6 +36,8 @@ class ScreenSharer(
     private var encoder: MediaCodec? = null
     private var drainJob: Job? = null
     private val seq = AtomicInteger(0)
+    private var framesSent = 0
+    private var bytesSent = 0L
 
     companion object {
         const val MAX_PART = 48 * 1024
@@ -164,8 +166,11 @@ class ScreenSharer(
                             val csd0 = fmt.getByteBuffer("csd-0")
                             val csd1 = fmt.getByteBuffer("csd-1")
                             if (csd0 != null && csd1 != null) {
-                                sendRaw(peerId, -1, toBytes(csd0), key = true)
-                                sendRaw(peerId, -2, toBytes(csd1), key = true)
+                                val b0 = toBytes(csd0)
+                                val b1 = toBytes(csd1)
+                                log("[tela] csd ${b0.size + b1.size}b.")
+                                sendRaw(peerId, -1, b0, key = true)
+                                sendRaw(peerId, -2, b1, key = true)
                             }
                         } catch (e: Exception) { }
                     }
@@ -178,8 +183,9 @@ class ScreenSharer(
     }
 
     private fun toBytes(b: ByteBuffer): ByteArray {
-        val out = ByteArray(b.remaining())
-        b.get(out)
+        val d = b.duplicate()
+        val out = ByteArray(d.remaining())
+        d.get(out)
         return out
     }
 
@@ -208,6 +214,10 @@ class ScreenSharer(
 
     private suspend fun sendAccessUnit(peerId: String, data: ByteArray, key: Boolean) {
         val s = seq.getAndIncrement()
+        framesSent++
+        bytesSent += data.size
+        if (framesSent == 1 || framesSent % 60 == 0)
+            log("[tela] quadros=$framesSent bytes=${bytesSent / 1024}KB.")
         sendRaw(peerId, s, data, key)
     }
 

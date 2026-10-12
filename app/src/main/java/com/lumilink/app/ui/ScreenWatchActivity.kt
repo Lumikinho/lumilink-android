@@ -27,6 +27,10 @@ class ScreenWatchActivity : ComponentActivity() {
     private var configured = false
     private var pump: Job? = null
     private var peerName by mutableStateOf("")
+    private var fedCount = 0
+    private var renderedCount = 0
+
+    private fun alog(s: String) = android.util.Log.i("LumiLink", "[tela] $s")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,6 +70,7 @@ class ScreenWatchActivity : ComponentActivity() {
                     delay(100)
                 }
                 val (a, b) = csd ?: return@launch
+                alog("csd ${a.size + b.size}b, surface=${surface != null}.")
                 configure(a, b)
                 while (isActive) {
                     val f = ScreenHub.frames.poll()
@@ -87,12 +92,13 @@ class ScreenWatchActivity : ComponentActivity() {
             if (f.seq < 0) return
             val dec = decoder ?: return
             val idx = dec.dequeueInputBuffer(10_000)
-            if (idx >= 0) {
-                val buf = dec.getInputBuffer(idx) ?: return
-                buf.clear()
-                buf.put(f.data)
-                dec.queueInputBuffer(idx, 0, f.data.size, System.nanoTime() / 1000, 0)
-            }
+            if (idx < 0) return
+            val buf = dec.getInputBuffer(idx) ?: return
+            buf.clear()
+            buf.put(f.data)
+            dec.queueInputBuffer(idx, 0, f.data.size, System.nanoTime() / 1000, 0)
+            fedCount++
+            if (fedCount == 1 || fedCount % 60 == 0) alog("frames alimentados=$fedCount.")
             drain()
         } catch (e: Exception) { }
     }
@@ -111,7 +117,8 @@ class ScreenWatchActivity : ComponentActivity() {
             dec.start()
             decoder = dec
             configured = true
-        } catch (e: Exception) { configured = false }
+            alog("decoder ok ${ScreenHub.width}x${ScreenHub.height}.")
+        } catch (e: Exception) { configured = false; alog("decoder falhou: ${e.message}") }
     }
 
     private fun drain() {
@@ -120,8 +127,12 @@ class ScreenWatchActivity : ComponentActivity() {
             val info = MediaCodec.BufferInfo()
             repeat(4) {
                 val idx = dec.dequeueOutputBuffer(info, 0)
-                if (idx >= 0) dec.releaseOutputBuffer(idx, true)
-                else return
+                if (idx >= 0) {
+                    dec.releaseOutputBuffer(idx, true)
+                    renderedCount++
+                    if (renderedCount == 1 || renderedCount % 60 == 0)
+                        alog("quadros na tela=$renderedCount.")
+                } else return
             }
         } catch (e: Exception) { }
     }

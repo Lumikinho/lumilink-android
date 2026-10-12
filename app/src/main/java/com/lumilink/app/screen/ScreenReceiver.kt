@@ -19,6 +19,7 @@ class ScreenReceiver(
     private val peers: PeerStore,
     private val log: (String) -> Unit,
 ) {
+    private var rxCount = 0
     fun register() {
         router.register("screen_offer") { c, m ->
             val id = c.deviceId
@@ -46,6 +47,8 @@ class ScreenReceiver(
                 else ScreenHub.pushPart(seq,
                     m.payload.optInt("part", 0), m.payload.optInt("parts", 1),
                     m.payload.optBoolean("key", false), bytes)
+                rxCount++
+                if (rxCount == 1 || rxCount % 60 == 0) log("[tela] rx $rxCount partes.")
             } catch (e: Exception) { }
             Unit
         }

@@ -12,6 +12,8 @@ object ScreenHub {
     @Volatile var width = 0
     @Volatile var height = 0
     val frames = ConcurrentLinkedQueue<Frame>()
+    @Volatile var rxParts = 0
+    @Volatile var rxFrames = 0
     private val parts = mutableMapOf<Int, MutableList<ByteArray>>()
     private var csd0: ByteArray? = null
     private var csd1: ByteArray? = null
