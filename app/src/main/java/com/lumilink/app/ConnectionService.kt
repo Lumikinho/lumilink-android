@@ -154,7 +154,6 @@ class ConnectionService : Service() {
             .setContentTitle(title).setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setOngoing(track.state == "playing").build()
-        com.lumilink.app.notification.FocusIsland.attachMedia(this, n, title, text)
         nm.notify(2001, n)
         sendBroadcast(Intent("LUMILINK_MEDIA")
             .putExtra("title", track.title).putExtra("artist", track.artist)

@@ -213,7 +213,7 @@ class MainActivity : ComponentActivity() {
                 .setContentText("Se a ilha acender, está funcionando.")
                 .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
                 .setAutoCancel(true).setTimeoutAfter(10000).build()
-            com.lumilink.app.notification.FocusIsland.attachMedia(
+            com.lumilink.app.notification.FocusIsland.attach(
                 this, n, "Teste LumiLink", "Se a ilha acender, está funcionando.")
             nm.notify(2002, n)
         } catch (e: Exception) { }

@@ -91,7 +91,6 @@ class MediaRemote(
                     .setMediaSession(session.sessionToken)
                     .setShowActionsInCompactView(0, 1, 2))
                 .build()
-            FocusIsland.attachMedia(ctx, n, title, artist)
             nm.notify(2002, n)
         } catch (e: Exception) { log("[media-pc] notificação falhou: ${e.message}") }
     }
