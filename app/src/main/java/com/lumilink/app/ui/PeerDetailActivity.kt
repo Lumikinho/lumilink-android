@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -33,6 +34,14 @@ class PeerDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         id = intent.getStringExtra("peerId") ?: ""
+        val picker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) {
+                startService(Intent(this@PeerDetailActivity, ConnectionService::class.java)
+                    .putExtra("action", "send_file")
+                    .putExtra("peerId", id)
+                    .putExtra("uri", uri.toString()))
+            }
+        }
         setContent {
             MaterialTheme {
                 Column(Modifier.padding(16.dp)) {
@@ -47,6 +56,7 @@ class PeerDetailActivity : ComponentActivity() {
                         startService(Intent(this@PeerDetailActivity, ConnectionService::class.java)
                             .putExtra("action", "reconnect_now").putExtra("peerId", id))
                     }) { Text("Reconectar agora") }
+                    Button(onClick = { picker.launch("*/*") }) { Text("Enviar arquivo") }
                     Button(onClick = {
                         startService(Intent(this@PeerDetailActivity, ConnectionService::class.java)
                             .putExtra("action", "forget").putExtra("peerId", id))

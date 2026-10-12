@@ -23,6 +23,7 @@ import kotlinx.coroutines.*
 class ConnectionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var manager: PeerManager? = null
+    private var fileTransfer: com.lumilink.app.transfer.FileTransfer? = null
     private var mediaRemote: com.lumilink.app.media.MediaRemote? = null
     private var lastPcPeer = ""
 
@@ -98,6 +99,11 @@ class ConnectionService : Service() {
                     peerName = { id -> peers.get(id)?.name ?: id },
                     notify = { t, x -> mgr.notifyUser(t, x) },
                     log = logFn)
+                com.lumilink.app.transfer.FileTransfer(c.applicationContext, router, mgr,
+                    clipStore,
+                    peerName = { id -> peers.get(id)?.name ?: id },
+                    notify = { t, x -> mgr.notifyUser(t, x) },
+                    log = logFn).also { fileTransfer = it }
                 clipMonitor.start()
                 mgr.start()
                 log("[svc] nó ${settings.deviceId().take(8)} porta ${settings.port()}")
@@ -208,6 +214,17 @@ class ConnectionService : Service() {
                 if (id == null) log("[ping] sem par.")
                 else try { manager?.pingPeer(id) }
                 catch (e: Exception) { log("[ping] sem resposta (${e.message}).") }
+            }
+            "send_file" -> scope.launch {
+                val id = i.getStringExtra("peerId")
+                val uri = i.getStringExtra("uri")
+                if (id == null || uri == null) {
+                    log("[file] faltando par ou arquivo.")
+                } else {
+                    try {
+                        fileTransfer?.sendFile(id, android.net.Uri.parse(uri))
+                    } catch (e: Exception) { log("[file] envio falhou: ${e.message}") }
+                }
             }
             "media_action" -> {
                 // toggle/play/pause/next/prev: o PC resolve (toggle nativo).
