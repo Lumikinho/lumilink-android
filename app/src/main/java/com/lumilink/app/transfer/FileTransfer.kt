@@ -27,7 +27,10 @@ class FileTransfer(
         val file: File, val out: java.io.OutputStream, val name: String,
         val size: Long, val sha: String, var expected: Int = 0,
         var last: Long = System.currentTimeMillis(),
+        val pending: java.util.SortedMap<Int, ByteArray> = java.util.TreeMap(),
     )
+
+    private val sendingGuards = ConcurrentHashMap<String, java.util.concurrent.Semaphore>()
 
     private val accepts = ConcurrentHashMap<String, MutableSet<String>>()
     private val acceptEvents = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
@@ -41,6 +44,19 @@ class FileTransfer(
     }
 
     suspend fun sendFile(peerId: String, uri: Uri) {
+        val gate = sendingGuards.getOrPut(peerId) { java.util.concurrent.Semaphore(1) }
+        if (!gate.tryAcquire()) {
+            log("[file] já enviando para este par.")
+            return
+        }
+        try {
+            sendFileInner(peerId, uri)
+        } finally {
+            gate.release()
+        }
+    }
+
+    private suspend fun sendFileInner(peerId: String, uri: Uri) {
         val resolver = appCtx.contentResolver
         var name = uri.lastPathSegment ?: "arquivo"
         var size = -1L
@@ -116,6 +132,9 @@ class FileTransfer(
             val size = m.payload.optLong("size", 0)
             val sha = m.payload.optString("sha256", "")
             if (fileId.isEmpty() || size <= 0 || size > 200L * 1024 * 1024) return
+            val cur = incoming[fileId]
+            if (cur != null && cur.size == size && cur.sha == sha) return // oferta repetida
+            cur?.let { try { it.out.close(); it.file.delete() } catch (e: Exception) { } }
             val f = File(store.clipDir, "$fileId.part")
             incoming[fileId] = InFile(f, f.outputStream(), sanitize(name), size, sha)
             c.send(Message.create("clip_file_accept", JSONObject()
@@ -143,11 +162,27 @@ class FileTransfer(
             val fileId = m.payload.optString("fileId", "")
             val seq = m.payload.optInt("seq", -1)
             val s = incoming[fileId] ?: return
-            if (seq != s.expected) { log("[file] chunk fora de ordem."); return }
-            s.out.write(Base64.decode(m.payload.optString("data", ""), Base64.DEFAULT))
-            s.expected++
-            s.last = System.currentTimeMillis()
-        } catch (e: Exception) { log("[file] chunk ignorado: ${e.message}") }
+            val bytes = Base64.decode(m.payload.optString("data", ""), Base64.DEFAULT)
+            val ok = synchronized(s) {
+                if (seq < s.expected) false
+                else if (seq == s.expected) {
+                    s.out.write(bytes)
+                    s.expected++
+                    var nxt = s.pending.remove(s.expected)
+                    while (nxt != null) {
+                        s.out.write(nxt)
+                        s.expected++
+                        nxt = s.pending.remove(s.expected)
+                    }
+                    s.last = System.currentTimeMillis()
+                    true
+                } else {
+                    if (s.pending.size >= 256 || s.pending.containsKey(seq)) false
+                    else { s.pending[seq] = bytes; s.last = System.currentTimeMillis(); true }
+                }
+            }
+            if (!ok) log("[clip] chunk $seq recusado (esperava ${s.expected}, buffer ${s.pending.size}).")
+        } catch (e: Exception) { log("[clip] chunk ignorado: ${e.message}") }
     }
 
     private suspend fun onDone(c: com.lumilink.app.messaging.MessageRouter.Ctx, m: Message) {
