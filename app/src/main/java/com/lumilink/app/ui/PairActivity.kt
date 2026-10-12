@@ -36,15 +36,19 @@ class PairActivity : ComponentActivity() {
             }
         }
         CoroutineScope(Dispatchers.IO).launch {
-            delay(400) // dá tempo do service gerar a credencial
-            try {
-                val raw = getSharedPreferences("pairing_ui", MODE_PRIVATE)
-                    .getString("json", null) ?: return@launch
-                val o = JSONObject(raw)
-                code = o.optString("code", "")
-                addr = "${o.optString("ip", "")}:${o.optInt("port", 0)}"
-                qrBmp = QrPayload.toBitmap(o.optString("qr", ""))
-            } catch (e: Exception) { }
+            repeat(15) {
+                val raw = getSharedPreferences("pairing_ui", MODE_PRIVATE).getString("json", null)
+                if (raw != null) {
+                    try {
+                        val o = JSONObject(raw)
+                        code = o.optString("code", "")
+                        addr = "${o.optString("ip", "")}:${o.optInt("port", 0)}"
+                        qrBmp = QrPayload.toBitmap(o.optString("qr", ""))
+                    } catch (e: Exception) { }
+                    return@launch
+                }
+                delay(200)
+            }
         }
     }
 }
