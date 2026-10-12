@@ -40,7 +40,10 @@ class PeerManager(
     data class PeerView(
         val deviceId: String, val name: String, val state: String,
         val lastSeen: Long, val lastIp: String, val photoHash: String,
+        val media: String = "",
     )
+
+    private val mediaOf = ConcurrentHashMap<String, String>()
 
     private inner class Inbox {
         private val waiters = ConcurrentHashMap<String, CompletableDeferred<Message>>()
@@ -141,6 +144,17 @@ class PeerManager(
             Unit
         }
         router.register("echo_response") { _, m -> log("[echo] eco: ${m.payload.optString("text")}"); Unit }
+        router.register("media_status") { c, m ->
+            val id = c.deviceId
+            if (!c.authenticated || id == null) return@register Unit
+            val t = m.payload.optString("title", "").take(64)
+            val a = m.payload.optString("artist", "").take(64)
+            mediaOf[id] = if (t.isEmpty()) "" else
+                (if (m.payload.optBoolean("playing", false)) "▶ " else "⏸ ") + t +
+                (if (a.isNotEmpty()) " — $a" else "")
+            changed()
+            Unit
+        }
     }
 
     suspend fun start() {
@@ -180,7 +194,8 @@ class PeerManager(
     fun getPeers(): List<PeerView> = peers.all().map { r ->
         val s = sessions[r.deviceId]
         PeerView(r.deviceId, r.name, s?.state ?: "Desconectado",
-            r.lastSeen, r.lastIp.ifEmpty { s?.discIp ?: "" }, r.photoHash)
+            r.lastSeen, r.lastIp.ifEmpty { s?.discIp ?: "" }, r.photoHash,
+            mediaOf[r.deviceId] ?: "")
     }
 
     suspend fun createPairingDisplay(): JSONObject {
@@ -305,6 +320,7 @@ class PeerManager(
 
     suspend fun forget(id: String) {
         val s = sessions.remove(id)
+        mediaOf.remove(id)
         s?.link?.let {
             try { it.send(Message.create("bye", JSONObject().put("reason", "going-away"))) } catch (e: Exception) { }
             try { it.close() } catch (e: Exception) { }
@@ -771,9 +787,16 @@ class PeerManager(
             val arr = JSONArray()
             for (v in getPeers()) arr.put(JSONObject()
                 .put("deviceId", v.deviceId).put("name", v.name).put("state", v.state)
-                .put("lastSeen", v.lastSeen).put("lastIp", v.lastIp).put("photoHash", v.photoHash))
+                .put("lastSeen", v.lastSeen).put("lastIp", v.lastIp).put("photoHash", v.photoHash)
+                .put("media", v.media))
             appCtx.getSharedPreferences("peers_ui", Context.MODE_PRIVATE).edit()
                 .putString("peers_json", arr.toString()).apply()
+        } catch (e: Exception) { }
+        try {
+            // Bateria: só procura na rede quando há par desconectado.
+            val all = peers.all()
+            if (all.isEmpty() || all.all { sessions[it.deviceId]?.state == "Conectado" }) nsd?.stopDiscovery()
+            else nsd?.startDiscovery()
         } catch (e: Exception) { }
         try { onChanged?.invoke() } catch (e: Exception) { }
     }

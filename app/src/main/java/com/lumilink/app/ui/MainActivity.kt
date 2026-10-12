@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private var logs by mutableStateOf(listOf<String>())
     private var trackLine by mutableStateOf("")
     private var listenerGranted by mutableStateOf(false)
+    private var islandState by mutableStateOf("Ilha: verificando…")
     private var startOnBoot by mutableStateOf(false)
     private val receivers = mutableListOf<BroadcastReceiver>()
     private lateinit var settings: AppSettings
@@ -107,10 +108,15 @@ class MainActivity : ComponentActivity() {
                         Text("Área de transferência")
                     }
                     if (trackLine.isNotEmpty()) Text("Tocando: $trackLine")
-                    if (!listenerGranted) {
-                        Button(onClick = {
-                            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                        }) { Text("Liberar acesso a notificações (p/ mídia)") }
+                    Text(islandState, style = MaterialTheme.typography.bodySmall)
+                    Row {
+                        if (!listenerGranted) {
+                            Button(onClick = {
+                                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                            }) { Text("Acesso a notificações") }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Button(onClick = { testIsland() }) { Text("Testar ilha") }
                     }
                     Text("Pareados:", style = MaterialTheme.typography.titleSmall)
                     LazyColumn(Modifier.height(220.dp)) {
@@ -178,7 +184,33 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         refreshPeers()
         refreshListenerState()
+        refreshIslandState()
         sendBroadcast(Intent("LUMILINK_MEDIA_REQ"))
+    }
+
+    private fun refreshIslandState() {
+        CoroutineScope(Dispatchers.IO).launch {
+            val ok = try {
+                com.lumilink.app.notification.FocusIsland.hasFocusPermission(this@MainActivity)
+            } catch (e: Exception) { false }
+            islandState = if (ok) "Ilha: pronta" else "Ilha: sem permissão de foco"
+        }
+    }
+
+    private fun testIsland() {
+        try {
+            val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+            nm.createNotificationChannel(android.app.NotificationChannel("lumilink_ping",
+                "LumiLink ping", android.app.NotificationManager.IMPORTANCE_DEFAULT))
+            val n = androidx.core.app.NotificationCompat.Builder(this, "lumilink_ping")
+                .setContentTitle("Teste LumiLink")
+                .setContentText("Se a ilha acender, está funcionando.")
+                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                .setAutoCancel(true).setTimeoutAfter(10000).build()
+            com.lumilink.app.notification.FocusIsland.attachMedia(
+                this, n, "Teste LumiLink", "Se a ilha acender, está funcionando.")
+            nm.notify(2002, n)
+        } catch (e: Exception) { }
     }
 
     private fun refreshListenerState() {

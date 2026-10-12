@@ -104,6 +104,7 @@ class ConnectionService : Service() {
         if (track == null) {
             try { nm.cancel(2001) } catch (e: Exception) { }
             sendBroadcast(Intent("LUMILINK_MEDIA"))
+            scope.launch { broadcastMedia(null) }
             return
         }
         nm.createNotificationChannel(NotificationChannel("lumilink_media",
@@ -114,11 +115,29 @@ class ConnectionService : Service() {
             .setContentTitle(title).setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setOngoing(track.playing).build()
-        com.lumilink.app.notification.FocusIsland.attach(this, n, title, text)
+        com.lumilink.app.notification.FocusIsland.attachMedia(this, n, title, text)
         nm.notify(2001, n)
         sendBroadcast(Intent("LUMILINK_MEDIA")
             .putExtra("title", track.title).putExtra("artist", track.artist)
             .putExtra("app", track.app).putExtra("playing", track.playing))
+        scope.launch { broadcastMedia(track) }
+    }
+
+    private var lastMediaSent = ""
+    private suspend fun broadcastMedia(track: com.lumilink.app.media.TrackInfo?) {
+        try {
+            val key = if (track == null) "" else
+                "${track.title}|${track.artist}|${track.app}|${track.playing}"
+            if (key == lastMediaSent) return
+            lastMediaSent = key
+            val mgr = manager ?: return
+            mgr.broadcast(org.json.JSONObject().let {
+                com.lumilink.app.messaging.Message.create("media_status",
+                    it.put("title", track?.title ?: "").put("artist", track?.artist ?: "")
+                        .put("app", track?.app ?: "").put("playing", track?.playing == true)
+                        .put("ts", System.currentTimeMillis()))
+            })
+        } catch (e: Exception) { }
     }
 
     override fun onStartCommand(i: Intent?, f: Int, s: Int): Int {

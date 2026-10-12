@@ -95,6 +95,20 @@ Sem QR. Dialer = quem disca (§3); listener = quem escuta:
 | `profile` / `profile_update` | ambos | `{ name, photoHash }` |
 | `profile_photo_request` | ambos | `{}` |
 | `profile_photo` | ambos | `{ photoHash, mime, dataBase64 }` |
+| `clip_text` | ambos | `{ text, ts, source }` (texto ≤256 KB; `source` = deviceId de origem) |
+| `clip_image` | ambos | `{ mime, dataBase64, hash, w, h }` (imagem ≤3 MB; `hash` = SHA-256) |
+| `media_status` | par com mídia→par | `{ title, artist, app, playing, ts }` (só envia ao mudar; quem não tem fonte só exibe) |
+
+## 6b. Clipboard (só texto e imagem)
+
+- Cada nó monitora a área de transferência local (texto e imagem, ex. captura de tela);
+  mudança → salva no **histórico SQLite** local e difunde aos pares conectados
+  (se a sincronização estiver ativa). Arquivos em geral NÃO sincronizam.
+- **Anti-eco:** texto/arquivo por hash SHA-256; imagem por hash perceptual (aHash),
+  que sobrevive ao re-encode PNG↔JPEG entre os pares. Visto nos últimos 10 s (30 s
+  p/ imagem) não é reenviado.
+- Receber = salvar no histórico + aplicar na área local + notificar.
+- Limites: texto 256 KB, imagem 3 MB (reduz se maior). Fora disso: ignora + loga.
 
 Roteador por `type` (dicionário de handlers) — funções novas sem mexer na base.
 

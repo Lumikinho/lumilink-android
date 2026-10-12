@@ -26,7 +26,7 @@ object FocusIsland {
     fun attach(ctx: Context, n: Notification, title: String, text: String) {
         if (!supported()) return
         try {
-            n.extras.putString("miui.focus.param", paramJson(title.take(32), text.take(96)))
+            n.extras.putString("miui.focus.param", paramJson(title.take(32), text.take(96), false))
             val pics = Bundle()
             pics.putParcelable("miui.focus.pic_lumi",
                 Icon.createWithResource(ctx, android.R.drawable.stat_sys_data_bluetooth))
@@ -34,10 +34,35 @@ object FocusIsland {
         } catch (e: Exception) { }
     }
 
-    private fun paramJson(title: String, text: String): String {
+    // Template de mídia (ilha grande + pequena), espelhando o exemplo da doc oficial.
+    fun attachMedia(ctx: Context, n: Notification, title: String, text: String) {
+        if (!supported()) return
+        try {
+            n.extras.putString("miui.focus.param", paramJson(title.take(32), text.take(96), true))
+            val pics = Bundle()
+            pics.putParcelable("miui.focus.pic_lumi",
+                Icon.createWithResource(ctx, android.R.drawable.stat_sys_data_bluetooth))
+            n.extras.putBundle("miui.focus.pics", pics)
+        } catch (e: Exception) { }
+    }
+
+    private fun paramJson(title: String, text: String, media: Boolean): String {
         val small = JSONObject().put("picInfo",
             JSONObject().put("type", 1).put("pic", "miui.focus.pic_lumi"))
         val island = JSONObject().put("smallIslandArea", small)
+        if (media) {
+            val left = JSONObject()
+                .put("type", 1)
+                .put("picInfo", JSONObject().put("type", 1).put("pic", "miui.focus.pic_lumi"))
+                .put("miui.focus.paramtextInfo", JSONObject()
+                    .put("frontTitle", "LumiLink")
+                    .put("title", title)
+                    .put("content", text)
+                    .put("useHighLight", false))
+            island.put("islandProperty", 1)
+            island.put("bigIslandArea", JSONObject().put("imageTextInfoLeft", left))
+            island.put("shareData", JSONObject().put("title", title))
+        }
         val base = JSONObject().put("title", title).put("content", text).put("type", 2)
         val v2 = JSONObject()
             .put("protocol", 1)

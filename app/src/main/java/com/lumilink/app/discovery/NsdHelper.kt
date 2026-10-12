@@ -34,6 +34,7 @@ class NsdHelper(private val ctx: Context, private val log: (String) -> Unit) {
     }
 
     fun startDiscovery() {
+        if (discListener != null) return // já procurando
         discListener = object : NsdManager.DiscoveryListener {
             override fun onServiceFound(s: NsdServiceInfo) {
                 try {
@@ -60,9 +61,17 @@ class NsdHelper(private val ctx: Context, private val log: (String) -> Unit) {
         catch (e: Exception) { log("[mdns] descoberta falhou: ${e.message}") }
     }
 
+    fun stopDiscovery() {
+        val l = discListener
+        discListener = null
+        try { if (l != null) nsd.stopServiceDiscovery(l) } catch (e: Exception) { }
+    }
+
     fun stop() {
-        try { regListener?.let { nsd.unregisterService(it) } } catch (e: Exception) { }
-        try { discListener?.let { nsd.stopServiceDiscovery(it) } } catch (e: Exception) { }
+        val r = regListener
+        regListener = null
+        try { if (r != null) nsd.unregisterService(r) } catch (e: Exception) { }
+        stopDiscovery()
     }
 
     companion object {

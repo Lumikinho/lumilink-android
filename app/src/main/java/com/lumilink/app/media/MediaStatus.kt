@@ -20,10 +20,14 @@ data class TrackInfo(
 object MediaStatus {
     @Volatile private var controller: MediaController? = null
     private var callback: MediaController.Callback? = null
+    @Volatile private var lastQuery = 0L
 
     var onStatus: ((TrackInfo?) -> Unit)? = null
 
-    fun refresh(ctx: Context) {
+    fun refresh(ctx: Context, force: Boolean = false) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!force && now - lastQuery < 1500) return // debounce: notificação não é termômetro
+        lastQuery = now
         try {
             val msm = ctx.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
             val comp = ComponentName(ctx, MediaListener::class.java)
@@ -95,12 +99,12 @@ class MediaListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification?) {
-        // Mudanças de mídia chegam via MediaController.Callback; este gatilho
-        // cobre apps que só atualizam a notificação.
+        if (sbn?.packageName == packageName) return // ignora as nossas (senão vira loop)
         MediaStatus.refresh(this)
     }
 
     override fun onNotificationRemoved(sbn: android.service.notification.StatusBarNotification?) {
+        if (sbn?.packageName == packageName) return
         MediaStatus.refresh(this)
     }
 }
