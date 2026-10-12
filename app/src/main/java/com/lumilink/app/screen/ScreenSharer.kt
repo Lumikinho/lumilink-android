@@ -48,6 +48,7 @@ class ScreenSharer(
             try {
                 // Casa pelo remetente autenticado (não pelo forId): só o par-alvo vale.
                 val from = c.deviceId
+                log("[tela] aceite recebido de $from (esperava $pendingFor).")
                 if (m.payload.optBoolean("accept", false) && from != null && from == pendingFor)
                     acceptEv?.complete(Unit)
             } catch (e: Exception) { }

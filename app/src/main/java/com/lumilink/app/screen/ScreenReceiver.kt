@@ -30,7 +30,12 @@ class ScreenReceiver(
                 if (w <= 0 || h <= 0) return@register Unit
                 val name = peers.get(id)?.name ?: id
                 ScreenHub.reset(id, name, w, h)
-                c.send(Message.create("screen_accept", JSONObject().put("forId", id)))
+                try {
+                    c.send(Message.create("screen_accept", JSONObject().put("forId", id)))
+                    log("[tela] aceite ENVIADO p/ $id.")
+                } catch (e: Exception) {
+                    log("[tela] aceite FALHOU p/ $id: ${e.message}")
+                }
                 notifyWatch(name)
                 log("[tela] oferta aceita de $name (${w}x$h).")
             } catch (e: Exception) { log("[tela] oferta ignorada: ${e.message}") }
