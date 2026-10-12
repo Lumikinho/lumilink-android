@@ -3,6 +3,7 @@ package com.lumilink.app
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -47,6 +48,14 @@ class ConnectionService : Service() {
                     sendBroadcast(Intent("LUMILINK_CHANGED"))
                 }
                 manager = mgr
+                com.lumilink.app.media.MediaStatus.onStatus = { track -> onTrack(track) }
+                val mediaReq = object : android.content.BroadcastReceiver() {
+                    override fun onReceive(c: Context, i: Intent) {
+                        com.lumilink.app.media.MediaStatus.refresh(this@ConnectionService)
+                    }
+                }
+                registerReceiver(mediaReq, IntentFilter("LUMILINK_MEDIA_REQ"), RECEIVER_NOT_EXPORTED)
+                com.lumilink.app.media.MediaStatus.refresh(this@ConnectionService)
                 val clipStore = ClipStore(c)
                 val clipMonitor = ClipMonitor(c, scope)
                 ClipSync(c.applicationContext, scope, router, mgr, clipStore, clipMonitor,
@@ -88,6 +97,28 @@ class ConnectionService : Service() {
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth).build()
         com.lumilink.app.notification.FocusIsland.attach(this, n, "LumiLink", text)
         nm.notify(NOTIF, n)
+    }
+
+    private fun onTrack(track: com.lumilink.app.media.TrackInfo?) {
+        val nm = getSystemService(NotificationManager::class.java)
+        if (track == null) {
+            try { nm.cancel(2001) } catch (e: Exception) { }
+            sendBroadcast(Intent("LUMILINK_MEDIA"))
+            return
+        }
+        nm.createNotificationChannel(NotificationChannel("lumilink_media",
+            "LumiLink mídia", NotificationManager.IMPORTANCE_DEFAULT))
+        val title = (if (track.playing) "▶ " else "⏸ ") + track.title
+        val text = listOf(track.artist, track.app).filter { it.isNotBlank() }.joinToString(" • ")
+        val n = NotificationCompat.Builder(this, "lumilink_media")
+            .setContentTitle(title).setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setOngoing(track.playing).build()
+        com.lumilink.app.notification.FocusIsland.attach(this, n, title, text)
+        nm.notify(2001, n)
+        sendBroadcast(Intent("LUMILINK_MEDIA")
+            .putExtra("title", track.title).putExtra("artist", track.artist)
+            .putExtra("app", track.app).putExtra("playing", track.playing))
     }
 
     override fun onStartCommand(i: Intent?, f: Int, s: Int): Int {

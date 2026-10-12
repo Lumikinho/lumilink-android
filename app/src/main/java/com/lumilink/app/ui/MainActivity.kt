@@ -37,6 +37,8 @@ data class UiPeer(
 class MainActivity : ComponentActivity() {
     private var peers by mutableStateOf(listOf<UiPeer>())
     private var logs by mutableStateOf(listOf<String>())
+    private var trackLine by mutableStateOf("")
+    private var listenerGranted by mutableStateOf(false)
     private var startOnBoot by mutableStateOf(false)
     private val receivers = mutableListOf<BroadcastReceiver>()
     private lateinit var settings: AppSettings
@@ -60,7 +62,13 @@ class MainActivity : ComponentActivity() {
         }
         reg("LUMILINK_CHANGED") { refreshPeers() }
         reg("LUMILINK_LOG") { logs = (logs + "> ${it.getStringExtra("line")}".takeLast(200)).takeLast(60) }
+        reg("LUMILINK_MEDIA") {
+            val t = it.getStringExtra("title")
+            trackLine = if (t == null) "" else
+                "${if (it.getBooleanExtra("playing", false)) "▶ " else "⏸ "}$t — ${it.getStringExtra("artist")}"
+        }
         refreshPeers()
+        refreshListenerState()
         CoroutineScope(Dispatchers.IO).launch { startOnBoot = settings.startOnBoot() }
 
         setContent {
@@ -97,6 +105,12 @@ class MainActivity : ComponentActivity() {
                     }
                     Button(onClick = { startActivity(Intent(this@MainActivity, ClipActivity::class.java)) }) {
                         Text("Área de transferência")
+                    }
+                    if (trackLine.isNotEmpty()) Text("Tocando: $trackLine")
+                    if (!listenerGranted) {
+                        Button(onClick = {
+                            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        }) { Text("Liberar acesso a notificações (p/ mídia)") }
                     }
                     Text("Pareados:", style = MaterialTheme.typography.titleSmall)
                     LazyColumn(Modifier.height(220.dp)) {
@@ -160,7 +174,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() { super.onResume(); refreshPeers() }
+    override fun onResume() {
+        super.onResume()
+        refreshPeers()
+        refreshListenerState()
+        sendBroadcast(Intent("LUMILINK_MEDIA_REQ"))
+    }
+
+    private fun refreshListenerState() {
+        listenerGranted = androidx.core.app.NotificationManagerCompat
+            .getEnabledListenerPackages(this).contains(packageName)
+    }
 
     private fun requestBatteryExemption() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager

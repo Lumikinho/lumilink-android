@@ -71,3 +71,9 @@ DataStore (`pc_device_id`, `pc_last_ip`, nomes, `start_on_boot`) +
 As notificações (status do service, ping, clipboard) levam extras
 `miui.focus.param` + `miui.focus.pics` — em HyperOS com permissão de foco,
 aparecem na ilha; sem suporte caem para notificação normal sozinhas.
+
+## Mídia na ilha
+
+Com **Acesso a notificações** liberado (botão na tela principal), o app lê a
+sessão de mídia ativa (música, vídeo) e mostra `▶ título — artista` na ilha e
+na tela principal. Sem mídia, a notificação sai sozinha.
