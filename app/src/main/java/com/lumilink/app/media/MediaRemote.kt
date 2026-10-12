@@ -28,12 +28,19 @@ class MediaRemote(
             override fun onPause() = sendCmd("pause", null)
             override fun onSkipToNext() = sendCmd("next", null)
             override fun onSkipToPrevious() = sendCmd("prev", null)
-            override fun onSeekTo(pos: Long) = sendCmd("seek", pos)
+            override fun onSeekTo(pos: Long) {
+                // Arrastar dispara várias vezes: limita a 1 comando/1.5s.
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastSeekSent < 1500) return
+                lastSeekSent = now
+                sendCmd("seek", pos)
+            }
             override fun onStop() = sendCmd("pause", null)
         })
         isActive = false
     }
     private var lastArt: android.graphics.Bitmap? = null
+    private var lastSeekSent = 0L
 
     fun update(title: String, artist: String, art: ByteArray?, dur: Long, pos: Long,
         playing: Boolean, stopped: Boolean = false) {

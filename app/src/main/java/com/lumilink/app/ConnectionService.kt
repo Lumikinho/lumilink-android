@@ -248,6 +248,8 @@ class ConnectionService : Service() {
                 if (peer.isEmpty()) return@launch
                 manager?.sendTo(peer, com.lumilink.app.messaging.Message.create("media_cmd",
                     org.json.JSONObject().put("cmd", cmd).put("pos", pos ?: -1)))
+                if (cmd == "seek") log("[media-pc] seek → ${pos}ms.")
+                else log("[media-pc] comando: $cmd.")
             } catch (e: Exception) { log("[media-pc] comando falhou: ${e.message}") }
         }
     }
