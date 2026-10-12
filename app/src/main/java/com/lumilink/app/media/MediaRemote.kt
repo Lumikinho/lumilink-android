@@ -35,13 +35,19 @@ class MediaRemote(
     }
     private var lastArt: android.graphics.Bitmap? = null
 
-    fun update(title: String, artist: String, art: ByteArray?, dur: Long, pos: Long, playing: Boolean) {
+    fun update(title: String, artist: String, art: ByteArray?, dur: Long, pos: Long,
+        playing: Boolean, stopped: Boolean = false) {
         try {
             if (art != null) {
                 try { lastArt = BitmapFactory.decodeByteArray(art, 0, art.size) } catch (e: Exception) { }
             }
+            val mark = when {
+                stopped -> "⏹ "
+                playing -> "▶ "
+                else -> "⏸ "
+            }
             session.setMetadata(MediaMetadataCompat.Builder()
-                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, mark + title)
                 .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist)
                 .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, dur)
                 .putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, lastArt)
@@ -52,11 +58,13 @@ class MediaRemote(
                     PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                     PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or PlaybackStateCompat.ACTION_SEEK_TO)
                 .setState(
-                    if (playing) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED,
+                    if (stopped) PlaybackStateCompat.STATE_STOPPED
+                    else if (playing) PlaybackStateCompat.STATE_PLAYING
+                    else PlaybackStateCompat.STATE_PAUSED,
                     pos, if (playing) 1f else 0f)
                 .build())
             session.isActive = true
-            post(title, artist, playing)
+            post(mark + title, artist, playing)
         } catch (e: Exception) { log("[media-pc] update falhou: ${e.message}") }
     }
 

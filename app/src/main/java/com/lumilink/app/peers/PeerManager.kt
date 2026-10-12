@@ -149,8 +149,13 @@ class PeerManager(
             if (!c.authenticated || id == null) return@register Unit
             val t = m.payload.optString("title", "").take(64)
             val a = m.payload.optString("artist", "").take(64)
-            mediaOf[id] = if (t.isEmpty()) "" else
-                (if (m.payload.optBoolean("playing", false)) "▶ " else "⏸ ") + t +
+            val mark = when (m.payload.optString("state", "")) {
+                "playing" -> "▶ "
+                "paused" -> "⏸ "
+                "stopped" -> "⏹ "
+                else -> if (m.payload.optBoolean("playing", false)) "▶ " else "⏸ "
+            }
+            mediaOf[id] = if (t.isEmpty()) "" else mark + t +
                 (if (a.isNotEmpty()) " — $a" else "")
             changed()
             Unit

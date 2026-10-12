@@ -77,6 +77,7 @@ class ConnectionService : Service() {
                             rm.payload.optLong("dur", 0),
                             rm.payload.optLong("pos", 0),
                             rm.payload.optBoolean("playing", false),
+                            rm.payload.optString("state", "") == "stopped",
                         )
                     } catch (e: Exception) { log("[media-pc] ignorado: ${e.message}") }
                     Unit
@@ -142,17 +143,22 @@ class ConnectionService : Service() {
         }
         nm.createNotificationChannel(NotificationChannel("lumilink_media",
             "LumiLink mídia", NotificationManager.IMPORTANCE_DEFAULT))
-        val title = (if (track.playing) "▶ " else "⏸ ") + track.title
+        val mark = when (track.state) {
+            "playing" -> "▶ "
+            "paused" -> "⏸ "
+            else -> "⏹ "
+        }
+        val title = mark + track.title
         val text = listOf(track.artist, track.app).filter { it.isNotBlank() }.joinToString(" • ")
         val n = NotificationCompat.Builder(this, "lumilink_media")
             .setContentTitle(title).setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .setOngoing(track.playing).build()
+            .setOngoing(track.state == "playing").build()
         com.lumilink.app.notification.FocusIsland.attachMedia(this, n, title, text)
         nm.notify(2001, n)
         sendBroadcast(Intent("LUMILINK_MEDIA")
             .putExtra("title", track.title).putExtra("artist", track.artist)
-            .putExtra("app", track.app).putExtra("playing", track.playing))
+            .putExtra("app", track.app).putExtra("state", track.state))
         scope.launch { broadcastMedia(track) }
     }
 
@@ -160,14 +166,16 @@ class ConnectionService : Service() {
     private suspend fun broadcastMedia(track: com.lumilink.app.media.TrackInfo?) {
         try {
             val key = if (track == null) "" else
-                "${track.title}|${track.artist}|${track.app}|${track.playing}"
+                "${track.title}|${track.artist}|${track.app}|${track.state}"
             if (key == lastMediaSent) return
             lastMediaSent = key
             val mgr = manager ?: return
             mgr.broadcast(org.json.JSONObject().let {
                 com.lumilink.app.messaging.Message.create("media_status",
                     it.put("title", track?.title ?: "").put("artist", track?.artist ?: "")
-                        .put("app", track?.app ?: "").put("playing", track?.playing == true)
+                        .put("app", track?.app ?: "")
+                        .put("playing", track?.state == "playing")
+                        .put("state", track?.state ?: "")
                         .put("ts", System.currentTimeMillis()))
             })
         } catch (e: Exception) { }

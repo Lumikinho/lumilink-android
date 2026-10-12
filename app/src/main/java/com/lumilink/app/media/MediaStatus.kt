@@ -13,7 +13,7 @@ data class TrackInfo(
     val title: String,
     val artist: String,
     val app: String,
-    val playing: Boolean,
+    val state: String, // playing | paused | stopped
 )
 
 // Lê a mídia ativa via MediaSession (exige "Acesso a notificações" do usuário).
@@ -23,6 +23,10 @@ object MediaStatus {
     @Volatile private var lastQuery = 0L
 
     var onStatus: ((TrackInfo?) -> Unit)? = null
+
+    private var lastTitle = ""
+    private var lastArtist = ""
+    private var lastApp = ""
 
     fun refresh(ctx: Context, force: Boolean = false) {
         val now = android.os.SystemClock.elapsedRealtime()
@@ -57,6 +61,7 @@ object MediaStatus {
         try { callback?.let { controller?.unregisterCallback(it) } } catch (e: Exception) { }
         controller = null
         callback = null
+        lastTitle = ""; lastArtist = ""; lastApp = ""
         try { onStatus?.invoke(null) } catch (e: Exception) { }
     }
 
@@ -64,26 +69,40 @@ object MediaStatus {
         try {
             val c = controller
             if (c == null) {
-                onStatus?.invoke(null)
+                lastTitle = ""; lastArtist = ""; lastApp = ""
+                onStatus?.invoke(null) // app fechado/sem sessão: aí sim remove
                 return
             }
             val md = try { c.metadata } catch (e: Exception) { null }
             val st = try { c.playbackState } catch (e: Exception) { null }
             val title = md?.getString(MediaMetadata.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() }
             val artist = md?.getString(MediaMetadata.METADATA_KEY_ARTIST)?.takeIf { it.isNotBlank() } ?: ""
-            if (title == null) {
-                onStatus?.invoke(null)
+            var app = ""
+            try {
+                val pm = ctx.packageManager
+                val info = try {
+                    pm.getApplicationInfo(c.packageName, 0)
+                } catch (e: Exception) { null }
+                app = if (info != null) pm.getApplicationLabel(info).toString() else c.packageName
+            } catch (e: Exception) { app = c.packageName }
+            if (title != null) {
+                lastTitle = title; lastArtist = artist; lastApp = app
+            }
+            if (lastTitle.isEmpty()) {
+                onStatus?.invoke(null) // nunca houve mídia: nada a mostrar
                 return
             }
-            val app = try {
-                val pm = ctx.packageManager
-                pm.getApplicationLabel(pm.getApplicationInfo(c.packageName, 0)).toString()
-            } catch (e: Exception) { c.packageName }
+            // Sessão viva mas parada/sem estado: mostra STOPPED com a última faixa.
+            val state = when (st?.state) {
+                PlaybackState.STATE_PLAYING -> "playing"
+                PlaybackState.STATE_PAUSED -> "paused"
+                else -> "stopped"
+            }
             onStatus?.invoke(TrackInfo(
-                title = title,
-                artist = artist,
-                app = app,
-                playing = st?.state == PlaybackState.STATE_PLAYING,
+                title = lastTitle,
+                artist = lastArtist,
+                app = lastApp,
+                state = state,
             ))
         } catch (e: Exception) { }
     }
