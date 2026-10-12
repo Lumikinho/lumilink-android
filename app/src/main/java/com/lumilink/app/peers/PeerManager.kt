@@ -758,6 +758,7 @@ class PeerManager(
                 .setContentTitle(title).setContentText(text)
                 .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
                 .setAutoCancel(true).setTimeoutAfter(8000).build()
+            com.lumilink.app.notification.FocusIsland.attach(appCtx, n, title, text)
             nm.notify((1000 + Math.random() * 8000).toInt(), n)
         } catch (e: Exception) {
             log("[ping] notificação falhou: ${e.message}")

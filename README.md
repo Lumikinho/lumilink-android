@@ -65,3 +65,9 @@ router.register("echo_response") { _, msg ->
 DataStore (`pc_device_id`, `pc_last_ip`, nomes, `start_on_boot`) +
 `EncryptedSharedPreferences` (segredo) + `filesDir/profile.png` e `peer_<id>.png`.
 `local.properties` (caminho do SDK) não é commitado.
+
+## HyperIsland (HyperOS)
+
+As notificações (status do service, ping, clipboard) levam extras
+`miui.focus.param` + `miui.focus.pics` — em HyperOS com permissão de foco,
+aparecem na ilha; sem suporte caem para notificação normal sozinhas.

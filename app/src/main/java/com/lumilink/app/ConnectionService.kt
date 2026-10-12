@@ -67,9 +67,11 @@ class ConnectionService : Service() {
     private fun startFg(text: String) {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CH, "LumiLink", NotificationManager.IMPORTANCE_LOW))
-        startForeground(NOTIF, NotificationCompat.Builder(this, CH)
+        val n = NotificationCompat.Builder(this, CH)
             .setContentTitle("LumiLink").setContentText(text)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth).build())
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth).build()
+        com.lumilink.app.notification.FocusIsland.attach(this, n, "LumiLink", text)
+        startForeground(NOTIF, n)
     }
 
     private fun updateNotif() {
@@ -81,9 +83,11 @@ class ConnectionService : Service() {
             else -> "Conectado a ${up.size} dispositivos"
         }
         val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIF, NotificationCompat.Builder(this, CH)
+        val n = NotificationCompat.Builder(this, CH)
             .setContentTitle("LumiLink").setContentText(text)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth).build())
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth).build()
+        com.lumilink.app.notification.FocusIsland.attach(this, n, "LumiLink", text)
+        nm.notify(NOTIF, n)
     }
 
     override fun onStartCommand(i: Intent?, f: Int, s: Int): Int {
