@@ -45,7 +45,7 @@ class PeerManager(
 
     private val mediaOf = ConcurrentHashMap<String, String>()
 
-    private inner class Inbox {
+    inner class Inbox {
         private val waiters = ConcurrentHashMap<String, CompletableDeferred<Message>>()
         suspend fun wait(type: String, timeoutMs: Long): Message {
             val d = CompletableDeferred<Message>()
@@ -60,7 +60,7 @@ class PeerManager(
         fun failAll() { for ((_, d) in waiters) d.completeExceptionally(IOException("fechado")); waiters.clear() }
     }
 
-    private inner class Link(
+    inner class Link(
         val outgoing: Boolean,
         val send: suspend (Message) -> Unit,
         val close: suspend () -> Unit,
@@ -384,6 +384,12 @@ class PeerManager(
         return try {
             if (!l.isOpen()) false else { l.send(msg); true }
         } catch (e: Exception) { false }
+    }
+
+    // Link atual para stream fixo (chunks sempre no mesmo socket).
+    fun tryGetLink(id: String): Link? {
+        val l = sessions[id]?.link
+        return if (l != null && l.isOpen()) l else null
     }
 
     fun notifyUser(title: String, text: String) = notifyPing(title, text)

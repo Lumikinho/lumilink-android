@@ -10,6 +10,7 @@ import com.lumilink.app.storage.ClipStore
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -41,6 +42,7 @@ class FileTransfer(
         router.register("clip_file_accept") { c, m -> onAccept(c, m) }
         router.register("clip_file_chunk") { c, m -> onChunk(c, m) }
         router.register("clip_file_done") { c, m -> onDone(c, m) }
+        router.register("clip_file_abort") { c, m -> onAbort(c, m) }
     }
 
     suspend fun sendFile(peerId: String, uri: Uri) {
@@ -103,22 +105,37 @@ class FileTransfer(
             delay(1500)
             val who = synchronized(set) { set.toList() }
             if (who.isEmpty()) { log("[file] ninguém aceitou."); return }
-            resolver.openInputStream(uri)?.use { inp ->
-                val buf = ByteArray(32 * 1024)
-                var seq = 0
-                while (true) {
-                    val n = inp.read(buf)
-                    if (n <= 0) break
-                    val b64 = Base64.encodeToString(buf.copyOf(n), Base64.NO_WRAP)
-                    for (id in who)
-                        manager.sendTo(id, Message.create("clip_file_chunk", JSONObject()
-                            .put("fileId", fileId).put("seq", seq).put("data", b64)))
-                    seq++
+            // Fixa UM link p/ o stream inteiro (trocar no meio perde chunks).
+            val link = manager.tryGetLink(peerId)
+                ?: throw IOException("link caiu antes do stream.")
+            try {
+                resolver.openInputStream(uri)?.use { inp ->
+                    val buf = ByteArray(32 * 1024)
+                    var seq = 0
+                    while (true) {
+                        val n = inp.read(buf)
+                        if (n <= 0) break
+                        val b64 = Base64.encodeToString(buf.copyOf(n), Base64.NO_WRAP)
+                        try {
+                            link.send(Message.create("clip_file_chunk", JSONObject()
+                                .put("fileId", fileId).put("seq", seq).put("data", b64)))
+                        } catch (e: Exception) {
+                            throw IOException("link caiu no chunk $seq.")
+                        }
+                        seq++
+                    }
+                    try {
+                        link.send(Message.create("clip_file_done", JSONObject()
+                            .put("fileId", fileId).put("sha256", hex)))
+                    } catch (e: Exception) { }
+                    log("[file] $name enviado ($seq chunks).")
                 }
-                for (id in who)
-                    manager.sendTo(id, Message.create("clip_file_done", JSONObject()
-                        .put("fileId", fileId).put("sha256", hex)))
-                log("[file] $name enviado ($seq chunks).")
+            } catch (e: Exception) {
+                try {
+                    manager.sendTo(peerId, Message.create("clip_file_abort", JSONObject()
+                        .put("fileId", fileId).put("reason", e.message ?: "?")))
+                } catch (e2: Exception) { }
+                throw e
             }
         } catch (e: Exception) { log("[file] envio falhou: ${e.message}") }
         finally { accepts.remove(fileId); acceptEvents.remove(fileId) }
@@ -202,10 +219,12 @@ class FileTransfer(
                         md.update(buf, 0, n)
                     }
                 }
-                val actual = md.digest().joinToString("") { "%02x".format(it) }
-                if (!actual.equals(s.sha, ignoreCase = true) || s.file.length() != s.size) {
-                    log("[file] corrompido."); s.file.delete(); return
-                }
+                    val actual = md.digest().joinToString("") { "%02x".format(it) }
+                    if (!actual.equals(s.sha, ignoreCase = true) || s.file.length() != s.size) {
+                        log("[file] corrompido: ${s.file.length()}/${s.size} bytes, " +
+                            "hash ${actual.take(8)}… vs ${s.sha.take(8)}…")
+                        s.file.delete(); return
+                    }
                 val dst = unique(s.name)
                 s.file.renameTo(dst)
                 store.insert("file", path = dst.absolutePath, name = dst.name,
@@ -218,6 +237,18 @@ class FileTransfer(
                 log("[file] done ignorado: ${e.message}")
             }
         } catch (e: Exception) { log("[file] done ignorado: ${e.message}") }
+    }
+
+    private suspend fun onAbort(c: com.lumilink.app.messaging.MessageRouter.Ctx, m: Message) {
+        try {
+            val fileId = m.payload.optString("fileId", "")
+            val s = incoming.remove(fileId)
+            if (s != null) {
+                try { s.out.close() } catch (e: Exception) { }
+                s.file.delete()
+                log("[file] envio abortado pelo remetente ($fileId).")
+            }
+        } catch (e: Exception) { }
     }
 
     private fun sanitize(n: String): String {

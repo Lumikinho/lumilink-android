@@ -102,6 +102,7 @@ Sem QR. Dialer = quem disca (§3); listener = quem escuta:
 | `clip_file_accept` | par→remetente | `{ fileId, accept }` (remetente espera até 30 s) |
 | `clip_file_chunk` | remetente→par | `{ fileId, seq, data }` (32 KB raw em base64, `seq` desde 0, em ordem) |
 | `clip_file_done` | remetente→par | `{ fileId, sha256 }` (receptor confere e salva) |
+| `clip_file_abort` | remetente→par | `{ fileId, reason }` (link caiu no meio; receptor descarta) |
 | `media_status` | par com mídia→par | `{ title, artist, app, playing, state, ts }` (`state`: playing/paused/stopped; parado mostra ⏹ e só sai quando a sessão some; quem não tem fonte só exibe) |
 | `media_pc` | PC→celular | `{ title, artist, app, art, dur, pos, playing, state, ts }` (`art` = JPEG ~300px base64, omitido se igual; vazio limpa o controle remoto) |
 | `media_cmd` | celular→PC | `{ cmd: play\|pause\|toggle\|next\|prev\|seek, pos? }` (pos em ms p/ seek) |
